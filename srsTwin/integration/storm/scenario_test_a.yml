@@ -1,0 +1,18 @@
+# Temp scenario: prove Layer A sequential single real-PHY UE through the hub.
+name: test-a-seq
+duration_s: 40
+seed: 1
+layer_a:
+  pool_size: 1            # no barrier path (proven) — sequential single UE
+  total_arrivals: 3       # 3 attach->ping->detach cycles, one at a time
+  rf_profile_mix:
+    ideal: 1.0            # identity channel = closest to the verified baseline
+  behavior:
+    ping_count: 3
+    attach_timeout_s: 120
+    idle_after_s: 0
+layer_b:
+  total_ues: 0
+pattern:
+  type: poisson
+  params: {}

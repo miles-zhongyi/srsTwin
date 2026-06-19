@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# UERANSIM — PHY-abstracted 5G UE/gNB simulator for the storm's SCALE layer
+# (Layer B). It speaks NAS/RRC over NGAP (SCTP) straight to the Open5GS AMF, so
+# hundreds of UEs cost almost nothing vs the full-PHY srsUE pool (Layer A).
+#
+# Pinned to a known-good tag. If the source build is too slow in your setup, a
+# community prebuilt image works too — see storm/README.md (Layer B).
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        make gcc g++ cmake libsctp-dev lksctp-tools \
+        iproute2 iputils-ping iptables ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG UERANSIM_TAG=v3.2.6
+RUN git clone --depth 1 --branch ${UERANSIM_TAG} https://github.com/aligungr/UERANSIM /ueransim \
+    && cd /ueransim && make -j"$(nproc)"
+ENV PATH="/ueransim/build:${PATH}"
+
+# Default command runs the gNB; the orchestrator execs nr-ue for UE arrivals.
+WORKDIR /ueransim
+ENTRYPOINT ["build/nr-gnb"]
+CMD ["-c", "/gnb.yaml"]

@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# Slim OCUDU (srsRAN-Project) gNB image built for a ZeroMQ virtual radio.
+# UHD and DPDK are intentionally disabled: for a virtual UE<->DU link the RU
+# is the `zmq` driver, so we avoid the (very long) UHD/DPDK source builds the
+# stock docker/Dockerfile performs. ZeroMQ support is ON by default in CMake
+# and only needs libzmq3-dev at build time.
+#
+# Build context = the ocudu/ repo root.
+FROM ubuntu:24.04 AS builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake make gcc g++ pkg-config \
+        libfftw3-dev libmbedtls-dev libsctp-dev libyaml-cpp-dev libgtest-dev \
+        libzmq3-dev libboost-program-options-dev \
+        libdwarf-dev libdw-dev libelf-dev capnproto libcapnp-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD . /src
+# This repo was cloned on a filesystem without symlink support, so the git
+# symlink cmake/modules/FindBackward.cmake became a text file containing its
+# target path, which CMake then fails to parse. Restore the real module by
+# copying the file it pointed at (external/Backward/FindBackward.cmake).
+RUN cp /src/external/Backward/FindBackward.cmake /src/cmake/modules/FindBackward.cmake
+RUN cmake -B /build -S /src \
+        -DENABLE_ZEROMQ=ON -DENABLE_UHD=Off -DENABLE_DPDK=Off \
+        -DBUILD_TESTING=Off -DMARCH=native \
+    && cmake --build /build -j"$(nproc)" --target gnb
+
+FROM ubuntu:24.04 AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
+# Install the same dev packages in the runtime stage so every shared library
+# the gnb binary links against is present (simplest reliable approach).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libfftw3-dev libmbedtls-dev libsctp-dev libyaml-cpp-dev \
+        libzmq3-dev libboost-program-options-dev \
+        libdwarf-dev libdw-dev libelf-dev libcapnp-dev \
+        iproute2 iputils-ping libcap2-bin \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/apps/gnb/gnb /usr/local/bin/gnb
+ENTRYPOINT ["gnb"]

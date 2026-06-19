@@ -1,0 +1,98 @@
+services:
+  5gc:
+    container_name: srstwin_5gc
+    build:
+      context: ../ocudu/docker/open5gs
+      target: open5gs
+      args:
+        OS_VERSION: '22.04'
+        OPEN5GS_VERSION: v2.7.6
+    env_file:
+    - ./open5gs.env
+    volumes:
+    - ./storm/gen/subscribers.storm.csv:/subscribers.csv:ro
+    privileged: true
+    command: 5gc -c open5gs-5gc.yml
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.20 7777
+      interval: 3s
+      timeout: 1s
+      retries: 60
+    networks:
+      ran:
+        ipv4_address: 10.53.1.2
+  gnb:
+    container_name: srstwin_gnb
+    build:
+      context: ../ocudu
+      dockerfile: ../integration/Dockerfile.gnb
+    cap_add:
+    - SYS_NICE
+    - NET_ADMIN
+    volumes:
+    - ./gnb_zmq.hub.yml:/gnb_zmq.yml:ro
+    - gnb-logs:/tmp
+    depends_on:
+      5gc:
+        condition: service_healthy
+    command:
+    - -c
+    - /gnb_zmq.yml
+    networks:
+      ran:
+        ipv4_address: 10.53.1.3
+  hub:
+    container_name: srstwin_hub
+    build:
+      context: .
+      dockerfile: Dockerfile.hub
+    restart: unless-stopped
+    environment:
+      HUB_GNB_DL: tcp://10.53.1.3:2000
+      HUB_GNB_UL: tcp://*:2100
+      HUB_UE_SLOTS: 10.53.1.20:2001@3000
+      HUB_CHANNELS: '{}'
+      HUB_DL_BARRIER_TIMEOUT_MS: '10000'
+      HUB_UL_MISS_LIMIT: '8'
+      HUB_REQ_TIMEOUT_MS: '1500'
+    depends_on:
+    - gnb
+    networks:
+      ran:
+        ipv4_address: 10.53.1.4
+  srsue_00:
+    container_name: srstwin_storm_ue00
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.ue
+    cap_add:
+    - NET_ADMIN
+    - SYS_NICE
+    devices:
+    - /dev/net/tun
+    entrypoint:
+    - /bin/bash
+    - /ue_lifecycle.sh
+    command:
+    - /ue_zmq.conf
+    environment:
+      PING_COUNT: '3'
+      PING_TARGET: 10.45.0.1
+      ATTACH_TIMEOUT: '120'
+      IDLE_AFTER: '0'
+    volumes:
+    - ./storm/gen/ue_00.conf:/ue_zmq.conf:ro
+    - ./storm/ue_lifecycle.sh:/ue_lifecycle.sh:ro
+    networks:
+      ran:
+        ipv4_address: 10.53.1.20
+volumes:
+  gnb-logs: null
+networks:
+  ran:
+    ipam:
+      driver: default
+      config:
+      - subnet: 10.53.1.0/24

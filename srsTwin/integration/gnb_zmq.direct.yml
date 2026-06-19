@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# OCUDU gNB — direct ZMQ link to srsUE (no IQ hub).
+#   gNB DL REP  tcp://*:2000       ← UE REQ
+#   gNB UL REQ  → tcp://10.53.1.5:2001  (UE UL REP)
+#
+# Used by default: docker compose up -d 5gc gnb srsue
+
+cu_cp:
+  amf:
+    addrs: 10.53.1.2
+    port: 38412
+    bind_addrs: 10.53.1.3
+    supported_tracking_areas:
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+ru_sdr:
+  device_driver: zmq
+  device_args: tx_port=tcp://*:2000,rx_port=tcp://10.53.1.5:2001,base_srate=11.52e6
+  srate: 11.52
+  tx_gain: 0
+  rx_gain: 0
+
+cell_cfg:
+  dl_arfcn: 368500
+  band: 3
+  channel_bandwidth_MHz: 10
+  common_scs: 15
+  plmn: "00101"
+  tac: 7
+  pci: 1
+  pdcch:
+    dedicated:
+      ss2_type: common
+      dci_format_0_1_and_1_1: false
+    common:
+      ss0_index: 0
+      coreset0_index: 6
+  prach:
+    prach_config_index: 1
+  pdsch:
+    mcs_table: qam64
+  pusch:
+    mcs_table: qam64
+
+log:
+  filename: /tmp/gnb.log
+  all_level: info
+  rrc_level: debug
+  ngap_level: debug
+  f1ap_level: debug
+  hex_max_size: 128
+
+pcap:
+  mac_enable: enable
+  mac_filename: /tmp/gnb_mac.pcap
+  ngap_enable: enable
+  ngap_filename: /tmp/gnb_ngap.pcap

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# srsENB (LTE eNB from srsRAN_4G) with ZeroMQ RF driver.
+# Connects to srsEPC via S1AP and to srsUE via ZMQ IQ.
+# Build context = the srsRAN_4G/ repo root.
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake make gcc g++ pkg-config \
+        libfftw3-dev libmbedtls-dev \
+        libboost-program-options-dev libboost-system-dev \
+        libconfig++-dev libsctp-dev libzmq3-dev \
+        iproute2 iputils-ping iperf3 \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD . /src
+RUN cmake -B /build -S /src \
+        -DENABLE_UHD=OFF -DENABLE_BLADERF=OFF -DENABLE_SOAPYSDR=OFF \
+        -DENABLE_ZEROMQ=ON -DBUILD_TESTING=OFF \
+    && cmake --build /build -j"$(nproc)" --target srsenb \
+    && cp /build/srsenb/src/srsenb /usr/local/bin/srsenb
+
+ENTRYPOINT ["srsenb"]

@@ -1,0 +1,2 @@
+# name,imsi,key,op_type,op_c,amf,qci,ip_alloc
+srsue_00,001010123456780,00112233445566778899aabbccddeeff,opc,63bfa50ee6523365ff14c1f45f88737d,8000,9,

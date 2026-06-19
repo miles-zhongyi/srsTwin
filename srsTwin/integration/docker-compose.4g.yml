@@ -1,0 +1,129 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# 4G LTE stack overlay — parallel to the 5G NR stack in docker-compose.yml.
+# Uses a separate subnet (10.53.2.x) and ZMQ ports (2002/2003) to avoid
+# any conflict with the 5G services.
+#
+# To start ONLY the 4G stack (recommended — stacks should not run together
+# due to host TUN device name conflicts with 5G):
+#
+#   docker compose -f docker-compose.4g.yml up -d
+#
+# To rebuild from source after code changes:
+#
+#   docker compose -f docker-compose.4g.yml build
+#
+# Architecture (ZMQ IQ path):
+#
+#   srsue4g  ──ZMQ──►  srsenb  ──S1AP/GTP──►  srsepc
+#   :2003 REP          :2002 REP
+#             ◄──ZMQ── :2002 REQ → :2003 REQ
+#
+# Signal flow for 4G LTE attach:
+#   UE → eNB : RRC Connection Request   (ZMQ UL, UPER-encoded)
+#   eNB → UE : RRC Connection Setup
+#   UE → eNB : RRC Connection Setup Complete + NAS Attach Request
+#   eNB → EPC: Initial UE Message / S1AP
+#   EPC → eNB: Authentication / Security Mode
+#   EPC → eNB: Attach Accept + Activate Default EPS Bearer
+#   UE → eNB : Attach Complete
+
+networks:
+  ran4g:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.53.2.0/24
+
+volumes:
+  enb-logs:
+  epc-logs:
+  ue4g-logs:
+
+services:
+
+  srsepc:
+    container_name: srstwin_epc
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.epc
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./4g_configs/epc.conf:/epc.conf:ro
+      - ./4g_configs/subscribers.csv:/subscribers.csv:ro
+      - epc-logs:/tmp
+    command: ["/epc.conf"]
+    # HSS init can transiently fail (e.g. a bind-mounted subscribers.csv that
+    # isn't fully synced yet on first start) which exits srsepc with no
+    # automatic retry. Restart on failure and gate the eNB on a real
+    # "MME Initialized" signal instead of just "container started" — without
+    # this, the eNB happily starts, can never reach a dead MME, and rejects
+    # every RRC Connection Request ("MME isn't connected") until someone
+    # notices and restarts srsepc by hand.
+    restart: unless-stopped
+    healthcheck:
+      # srsepc's file logger buffers and only flushes once enough events pile
+      # up, so grepping /tmp/epc.log lags reality (saw 3+ min of silence on a
+      # fully-initialized, idle MME). The SCTP endpoint table doesn't lie:
+      # LPORT 36412 only appears once the MME's S1AP listener is actually bound.
+      test: ["CMD-SHELL", "grep -q '36412' /proc/net/sctp/eps"]
+      interval: 3s
+      timeout: 2s
+      retries: 60
+      start_period: 5s
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.2
+
+  srsenb:
+    container_name: srstwin_enb
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.enb
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    volumes:
+      - ./4g_configs/enb.conf:/enb.conf:ro
+      - ./4g_configs/sib.conf:/4g_configs/sib.conf:ro
+      - ./4g_configs/rr.conf:/4g_configs/rr.conf:ro
+      - ./4g_configs/rb.conf:/4g_configs/rb.conf:ro
+      - enb-logs:/tmp
+    depends_on:
+      srsepc:
+        condition: service_healthy
+    command: ["/enb.conf"]
+    restart: unless-stopped
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.3
+
+  srsue4g:
+    container_name: srstwin_ue4g
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.ue
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    devices:
+      - /dev/net/tun
+    environment:
+      # Point to the 22_decoded subdirectory so the LTE entrypoint
+      # can inject real TELUS m_tmsi and establishmentCause.
+      RRC_TRACE_DIR: /22_decoded/00
+    volumes:
+      - ./4g_configs/ue.conf:/ue4g.conf:ro
+      - ue4g-logs:/tmp
+      - ../22_decoded:/22_decoded:ro
+    depends_on:
+      - srsenb
+    command: ["/ue4g.conf"]
+    restart: unless-stopped
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.5

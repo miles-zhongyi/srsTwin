@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets / local env
+.env
+.env.*
+*.pem
+credentials.json
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+
+# Logs and runtime artifacts
+*.log
+**/logs/
+integration/dashboard/logs/
+
+# Generated dashboard (regenerate with parse_callflow.py)
+integration/dashboard/index.html
+
+# Docker / build
+**/build/
+**/.cmake/
+
+# Large TELUS trace datasets (~12 GB) — use Git LFS or keep local.
+# Remove these lines if you configure git-lfs for *.json / *.jsonl
+srsTwin/22_decoded/
+srsTwin/22_decoded_grouped/
+srsTwin/22_decoded_per_records/

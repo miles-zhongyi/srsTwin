@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# IQ hub overlay — merge with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.hub.yml up -d 5gc gnb hub srsue
+#   docker compose -f docker-compose.yml -f docker-compose.hub.yml --profile multi up -d srsue2
+#
+# Or use:  bash compose-up.sh hub
+
+services:
+  gnb:
+    volumes:
+      - ./gnb_zmq.hub.yml:/gnb_zmq.yml:ro
+      - gnb-logs:/tmp
+
+  hub:
+    container_name: srstwin_hub
+    build:
+      context: .
+      dockerfile: Dockerfile.hub
+    restart: unless-stopped
+    environment:
+      - HUB_GNB_DL=tcp://10.53.1.3:2000
+      - HUB_GNB_UL=tcp://*:2100
+      - HUB_UE_SLOTS=10.53.1.5:2001@3000,10.53.1.6:2001@3001
+      - HUB_DL_BARRIER_TIMEOUT_MS=60000
+    depends_on:
+      - gnb
+    networks:
+      ran:
+        ipv4_address: 10.53.1.4
+
+  srsue:
+    volumes:
+      - ./ue_zmq.hub.conf:/ue_zmq.conf:ro
+      - ue-logs:/tmp
+    depends_on:
+      gnb:
+        condition: service_started
+      hub:
+        condition: service_started
+
+  srsue2:
+    profiles: ["multi"]
+    container_name: srstwin_ue2
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.ue
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./ue_zmq2.conf:/ue_zmq.conf:ro
+      - ue2-logs:/tmp
+    depends_on:
+      hub:
+        condition: service_started
+    command: ["/ue_zmq.conf"]
+    networks:
+      ran:
+        ipv4_address: 10.53.1.6
+
+volumes:
+  ue2-logs:

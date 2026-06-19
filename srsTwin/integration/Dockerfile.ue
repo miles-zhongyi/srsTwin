@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# srsUE (from srsRAN_4G) image with the ZeroMQ RF driver enabled.
+# UHD/BladeRF/SoapySDR are disabled so no SDR libraries are required; the UE
+# talks to the gNB purely over ZeroMQ TCP. Only the `srsue` target is built.
+#
+# Build context = the srsRAN_4G/ repo root.
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake make gcc g++ pkg-config \
+        libfftw3-dev libmbedtls-dev \
+        libboost-program-options-dev libboost-system-dev \
+        libconfig++-dev libsctp-dev libzmq3-dev \
+        iproute2 iputils-ping iperf3 \
+        python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+ADD . /src
+RUN cmake -B /build -S /src \
+        -DENABLE_UHD=OFF -DENABLE_BLADERF=OFF -DENABLE_SOAPYSDR=OFF \
+        -DENABLE_ZEROMQ=ON -DBUILD_TESTING=OFF \
+    && cmake --build /build -j"$(nproc)" --target srsue \
+    && cp /build/srsue/src/srsue /usr/local/bin/srsue
+
+# TELUS trace injector: Python extractor + shell entrypoint wrapper.
+# rrc_trace_fields.py scans a mounted 22_decoded volume to find a real TELUS
+# RRC Connection Request record and outputs the m_tmsi / establishmentCause.
+# These are exported as RRC_TRACE_M_TMSI / RRC_TRACE_CAUSE and read by the
+# patched send_setup_request() in rrc_nr.cc before calling the srsRAN ASN.1
+# encoder, so the NR rrcSetupRequest carries real subscriber identity over ZMQ.
+COPY rrc_trace/rrc_trace_fields.py /rrc_trace_fields.py
+COPY rrc_trace/rrc_injector_entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

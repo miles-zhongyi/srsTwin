@@ -1,0 +1,219 @@
+# 5G RU Digital Twin - capacity / load PoC
+#   3 RU sites (towers) located apart in a triangle, each a 3-sector macro eNB
+#   (3 × 120° fan cells, 250 PRB/cell) on a shared DU = 9 cells total.
+#   ru @ (0,600), ru2 @ (-520,-300), ru3 @ (520,-300); UEs roam the cluster and hand
+#   over both between sectors of a site and between sites (HO_MARGIN_DB).
+#
+#   docker compose up --build                      # 1 UE (NUM_UES=1)
+#   NUM_UES=2000 docker compose up --build         # bash: 2000 UEs in ONE container
+#   $env:NUM_UES=2000; docker compose up --build   # PowerShell (or: .\scripts\run_stress.ps1)
+#   docker compose up --build --scale ue-sim=4     # 4 simulators across cores
+#   curl http://localhost:9080/status              # live cell state (JSON)
+#   (host 9080: container 8080 — avoids Windows reserved port 8080)
+#   open http://localhost:9090                     # metrics dashboard
+#   docker compose logs -f du                       # watch PRB utilisation
+#
+# Scale by raising NUM_UES (UEs are async tasks inside one process), NOT by
+# spinning up thousands of containers. For more than one process can handle,
+# add simulator replicas with --scale ue-sim=N.
+
+services:
+  du:
+    build:
+      context: .
+      dockerfile: du/Dockerfile
+    container_name: du
+    restart: unless-stopped
+    environment:
+      TOTAL_PRBS: "250"        # fixed 250 PRBs per sector cell (9 cells total)
+      SCS_KHZ: "30"
+      MONITOR_INTERVAL: "5"
+      TRAFFIC_PROFILE: "voip"  # 1–2 PRBs per voice session (see common/rf_model.py)
+      RADIO_TECH: "lte"        # realistic LTE (RRC/S1AP) signalling; nr reserved for 5G
+      LTE_TEMPLATES: "/trace/data/lte_templates.json"  # real message templates (optional; built-in defaults otherwise)
+    volumes:
+      - ./data:/trace/data:ro
+    ports:
+      - "9080:8080"   # 9080 on host: 8080 is often in Windows excludedportrange
+    networks: [ran]
+
+  # Three RU sites (towers) located apart. Each RU container is one macro eNB serving
+  # 3 sector cells (120° fans @ 60/180/300°, oriented so each site covers the cluster
+  # interior). Each sector cell owns its own 250-PRB pool on the shared DU.
+  ru:
+    build:
+      context: .
+      dockerfile: ru/Dockerfile
+    container_name: ru
+    restart: unless-stopped
+    depends_on: [du]
+    environment:
+      DU_HOST: du
+      DU_PORT: "38472"
+      SITE_ID: RU1
+      RU_TYPE: macro-3-sector-O-RU
+      FREQ_GHZ: "3.5"
+      BANDWIDTH_MHZ: "100"
+      CELL_TOTAL_PRBS: "250"
+      TX_POWER_DBM: "49"
+      TX_GAIN_DB: "15"
+      RU_X: "0"
+      RU_Y: "600"
+      RU_STATE_PATH: /trace/data/ru_state/RU1.json
+      SECTORS: >-
+        [{"cell":"RU1-A","azimuth":60},{"cell":"RU1-B","azimuth":180},{"cell":"RU1-C","azimuth":300}]
+      RADIO_TECH: "lte"
+      LTE_TEMPLATES: "/trace/data/lte_templates.json"
+    volumes:
+      - ./data:/trace/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks: [ran]
+
+  ru2:
+    build:
+      context: .
+      dockerfile: ru/Dockerfile
+    container_name: ru2
+    restart: unless-stopped
+    depends_on: [du]
+    environment:
+      DU_HOST: du
+      DU_PORT: "38472"
+      SITE_ID: RU2
+      RU_TYPE: macro-3-sector-O-RU
+      FREQ_GHZ: "3.5"
+      BANDWIDTH_MHZ: "100"
+      CELL_TOTAL_PRBS: "250"
+      TX_POWER_DBM: "49"
+      TX_GAIN_DB: "15"
+      RU_X: "-520"
+      RU_Y: "-300"
+      RU_STATE_PATH: /trace/data/ru_state/RU2.json
+      SECTORS: >-
+        [{"cell":"RU2-A","azimuth":60},{"cell":"RU2-B","azimuth":180},{"cell":"RU2-C","azimuth":300}]
+      RADIO_TECH: "lte"
+      LTE_TEMPLATES: "/trace/data/lte_templates.json"
+    volumes:
+      - ./data:/trace/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks: [ran]
+
+  ru3:
+    build:
+      context: .
+      dockerfile: ru/Dockerfile
+    container_name: ru3
+    restart: unless-stopped
+    depends_on: [du]
+    environment:
+      DU_HOST: du
+      DU_PORT: "38472"
+      SITE_ID: RU3
+      RU_TYPE: macro-3-sector-O-RU
+      FREQ_GHZ: "3.5"
+      BANDWIDTH_MHZ: "100"
+      CELL_TOTAL_PRBS: "250"
+      TX_POWER_DBM: "49"
+      TX_GAIN_DB: "15"
+      RU_X: "520"
+      RU_Y: "-300"
+      RU_STATE_PATH: /trace/data/ru_state/RU3.json
+      SECTORS: >-
+        [{"cell":"RU3-A","azimuth":60},{"cell":"RU3-B","azimuth":180},{"cell":"RU3-C","azimuth":300}]
+      RADIO_TECH: "lte"
+      LTE_TEMPLATES: "/trace/data/lte_templates.json"
+    volumes:
+      - ./data:/trace/data
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks: [ran]
+
+  # The whole UE population lives here. Each UE is an async task, not a container.
+  ue-sim:
+    build:
+      context: .
+      dockerfile: ue/Dockerfile
+    restart: unless-stopped
+    depends_on: [ru, ru2, ru3]
+    environment:
+      # 3 RU sites apart, each a 3-sector macro (cells share the site host/port + coords).
+      RU_LIST: >-
+        [{"name":"RU1","host":"ru","port":38470,"x":0,"y":600,
+          "sectors":[{"cell":"RU1-A","azimuth":60},{"cell":"RU1-B","azimuth":180},{"cell":"RU1-C","azimuth":300}]},
+         {"name":"RU2","host":"ru2","port":38470,"x":-520,"y":-300,
+          "sectors":[{"cell":"RU2-A","azimuth":60},{"cell":"RU2-B","azimuth":180},{"cell":"RU2-C","azimuth":300}]},
+         {"name":"RU3","host":"ru3","port":38470,"x":520,"y":-300,
+          "sectors":[{"cell":"RU3-A","azimuth":60},{"cell":"RU3-B","azimuth":180},{"cell":"RU3-C","azimuth":300}]}]
+      HO_MARGIN_DB: "3"         # A3 hysteresis: neighbour must beat serving by 3 dB
+      RADIO_TECH: "lte"         # realistic LTE (RRC/S1AP) signalling; nr reserved for 5G
+      LTE_TEMPLATES: "/trace/data/lte_templates.json"  # real templates (built by scripts/build_message_templates.py)
+      RU_HOST: ru               # fallback if RU_LIST is unset
+      RU_PORT: "38470"
+      NUM_UES: "${NUM_UES:-1}"  # override: NUM_UES=2000 docker compose up
+      UE_TARGET_STATE: "/trace/data/ue_target.json"  # survives ue-sim restart (dashboard scale)
+      MAX_UES: "5000"           # ceiling for dashboard / POST /control
+      UE_SPAWN_BATCH: "25"      # spawn UE tasks in batches (avoids connection_refused storms)
+      UE_SPAWN_INTERVAL: "0.2"
+      RAMP_SECONDS: "30"        # spread attach attempts across UEs (raise for 300+ UEs)
+      TRAFFIC_PROFILE: "voip"   # voip | data (Mbps stress)
+      # VoIP: DU assigns fixed 1–2 PRBs/session (not derived from demand)
+      DEMAND_MIN_MBPS: "0.012"
+      DEMAND_MAX_MBPS: "0.048"
+      # Synthetic load by default. Trace replay: docker compose -f docker-compose.trace.yml up
+      REPLAY_MODE: "0"
+      TRACE_INDEX: "/trace/data/trace_index.jsonl"
+      REPLAY_SPEED: "10"
+      UE_TX_POWERS_DBM: "20,23,26"
+      SPEED_MIN_MPS: "1"
+      SPEED_MAX_MPS: "30"
+      MAX_RADIUS_M: "1200"      # roam the well-covered interior of the 3-site cluster
+      START_RADIUS_M: "450"     # per-site spawn radius (UEs spawn around a random RU site)
+      SESSION_DURATION: "45"    # 0 = stay connected forever
+      IDLE_BETWEEN: "5"
+      STATS_INTERVAL: "5"
+    volumes:
+      - ./data:/trace/data
+      - ./22_decoded:/trace/raw:ro
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks: [ran]
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: dashboard
+    restart: unless-stopped
+    depends_on: [du, ue-sim, ru, ru2, ru3]
+    environment:
+      DU_STATUS_URL: http://du:8080/status
+      DU_TRACE_URL: http://du:8080/trace
+      UE_STATUS_URL: http://ue-sim:8081/status
+      UE_CONTROL_URL: http://ue-sim:8081/control
+      UE_GEO_URL: http://ue-sim:8081/geo
+      RU_STATE_DIR: /trace/data/ru_state
+      RU_DICTIONARY_URLS: http://ru:8082/dictionary,http://ru2:8082/dictionary,http://ru3:8082/dictionary
+      RECORD_ID_MESSAGES: /app/CallFlow/record-id-messages.txt
+      TRACE_DECODED_DIR: /trace/raw
+      TRACE_SAMPLES_CACHE: /trace/data/trace_message_samples.json
+      DASHBOARD_PORT: "9090"
+    volumes:
+      - ./22_decoded:/trace/raw:ro
+      - ./data:/trace/data
+    ports:
+      - "9090:9090"
+    networks: [ran]
+
+networks:
+  ran:
+    driver: bridge

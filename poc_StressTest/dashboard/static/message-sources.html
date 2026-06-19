@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Message sources — trace vs ML</title>
+  <style>
+    :root { --bg:#0c0f14; --card:#151a22; --border:#2a3140; --text:#e8eaed; --muted:#8b93a7;
+      --accent:#4d9fff; --ok:#3dd68c; --warn:#e5a84b; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:"Segoe UI",system-ui,sans-serif; background:var(--bg); color:var(--text);
+      padding:1.25rem 1.5rem 2rem; max-width:1200px; margin:0 auto; line-height:1.45; }
+    h1 { font-size:1.15rem; margin-bottom:0.35rem; }
+    .sub { font-size:0.8rem; color:var(--muted); margin-bottom:1rem; }
+    .nav { margin-bottom:1rem; display:flex; gap:0.5rem; flex-wrap:wrap; }
+    .btn { padding:0.45rem 0.85rem; border-radius:6px; border:1px solid var(--border);
+      background:#0a0d11; color:var(--text); font-size:0.8rem; text-decoration:none; cursor:pointer; }
+    .btn:hover { border-color:var(--accent); }
+    .btn.primary { background:var(--accent); color:#0a0d11; border-color:var(--accent); font-weight:600; }
+    table { width:100%; border-collapse:collapse; font-size:0.8rem; background:var(--card);
+      border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    th, td { padding:0.5rem 0.65rem; border-bottom:1px solid var(--border); text-align:left; }
+    th { color:var(--muted); font-weight:500; background:#12161e; position:sticky; top:0; }
+    tr:hover td { background:rgba(77,159,255,0.05); }
+    select { padding:0.25rem 0.4rem; border-radius:4px; border:1px solid var(--border);
+      background:#0a0d11; color:var(--text); font-size:0.78rem; }
+    .ok { color:var(--ok); } .warn { color:var(--warn); }
+    .meta { font-size:0.75rem; color:var(--muted); margin:0.75rem 0; }
+    .toolbar { display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-bottom:0.75rem; }
+    input[type=search] { padding:0.45rem 0.6rem; border-radius:6px; border:1px solid var(--border);
+      background:#0a0d11; color:var(--text); min-width:200px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a class="btn" href="/">← Dashboard</a>
+    <a class="btn" href="/messages.html">Trace catalog</a>
+  </div>
+  <h1>Signaling message sources</h1>
+  <p class="sub">Per message type: <b>trace</b> = 22_decoded template replay (full structure);
+    <b>ml</b> = ML-backed when vocab allows (same template fill for <code>decoded</code>);
+    <b>auto</b> = ML if available else trace.</p>
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Filter message name…" />
+    <select id="proto"><option value="">All protocols</option>
+      <option>RRC</option><option>S1</option><option>X2</option><option>OTHER</option></select>
+    <button class="btn primary" id="save">Save configuration</button>
+    <span class="meta" id="status"></span>
+  </div>
+  <div style="overflow:auto; max-height:70vh;">
+    <table>
+      <thead><tr>
+        <th>Message</th><th>record_id</th><th>Proto</th><th>Trace sample</th><th>ML</th>
+        <th>Resolves to</th><th>Source</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <script>
+    let entries = [];
+    const tbody = document.getElementById('tbody');
+    const status = document.getElementById('status');
+
+    async function load() {
+      const r = await fetch('/api/message-sources');
+      const data = await r.json();
+      entries = data.entries || [];
+      status.textContent = `config: ${data.path} · trace index: ${data.trace_index_loaded?'loaded':'missing'} · ML vocab: ${data.ml_vocab_loaded?'loaded':'missing'}`;
+      render();
+    }
+
+    function render() {
+      const q = document.getElementById('q').value.toLowerCase();
+      const proto = document.getElementById('proto').value;
+      tbody.innerHTML = '';
+      entries.filter(e => {
+        if (proto && e.protocol !== proto) return false;
+        if (q && !e.message_name.toLowerCase().includes(q)) return false;
+        return true;
+      }).forEach(e => {
+        const tr = document.createElement('tr');
+        const sel = document.createElement('select');
+        ['auto','trace','ml'].forEach(m => {
+          const o = document.createElement('option');
+          o.value = m; o.textContent = m;
+          if (e.mode === m) o.selected = true;
+          sel.appendChild(o);
+        });
+        sel.onchange = () => { e.mode = sel.value; };
+        tr.innerHTML = `<td>${e.message_name}</td><td>${e.record_id??'—'}</td><td>${e.protocol}</td>
+          <td class="${e.trace_sample?'ok':'warn'}">${e.trace_sample?'✓':'—'}</td>
+          <td class="${e.ml_available?'ok':'warn'}">${e.ml_available?'✓':'—'}</td>
+          <td>${e.resolved}</td><td></td>`;
+        tr.lastElementChild.appendChild(sel);
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('q').oninput = render;
+    document.getElementById('proto').onchange = render;
+    document.getElementById('save').onclick = async () => {
+      const sources = {};
+      entries.forEach(e => { sources[e.message_name] = e.mode; });
+      const r = await fetch('/api/message-sources', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({sources}),
+      });
+      if (!r.ok) { alert(await r.text()); return; }
+      const data = await r.json();
+      entries = data.entries || entries;
+      status.textContent = 'Saved.';
+      render();
+    };
+    load().catch(e => { status.textContent = String(e); });
+  </script>
+</body>
+</html>

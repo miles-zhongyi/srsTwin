@@ -1,0 +1,40 @@
+# srsTwin signaling-storm scenario — the one file you edit.
+#
+# Render it:   python storm/generate.py storm/scenario.yml
+# Run it:      python storm/orchestrate.py            (reads storm/gen/manifest.json)
+#
+# Two layers share one Open5GS:
+#   layer_a  RF-real srsUE pool over the IQ hub — genuine PRACH collisions,
+#            near-far/capture, real RRC/NAS. Bounded by CPU (~1 core/UE).
+#   layer_b  UERANSIM UEs straight to the AMF (NAS/NGAP, no PHY) — cheap scale.
+
+name: stadium-flash-crowd
+duration_s: 120          # storm timeline length (seconds)
+seed: 1                  # reproducible arrivals + RF realizations
+
+layer_a:                 # RF-realistic pool (the lockstep-bounded layer)
+  pool_size: 3           # CONCURRENT srsUE slots. Keep small (2-4): N full-PHY
+                         # UEs share one ZMQ lockstep, so the virtual clock slows
+                         # ~linearly with N. Push raw scale to layer_b instead.
+  total_arrivals: 12     # arrival EVENTS recycled across the pool over the timeline
+  rf_profile_mix:        # fractions over {near, mid, edge, ideal}; rounded to pool
+    near: 0.34
+    mid: 0.33
+    edge: 0.33
+  behavior:              # what each UE does once started: attach -> ping -> detach
+    ping_count: 5
+    ping_target: 10.45.0.1
+    attach_timeout_s: 180  # generous: the shared lockstep runs slower than real time
+    idle_after_s: 0      # extra idle (connected) time before detach
+
+layer_b:                 # control-plane scale (UERANSIM) — Phase 2
+  total_ues: 0           # set >0 once UERANSIM is built (see storm/README.md)
+
+pattern:                 # how arrivals are spread over duration_s
+  type: burst            # burst | outage_recovery | poisson | ramp | periodic
+  params:                # pattern-specific (see storm/patterns.py):
+    start_s: 10          #   burst:           start_s, window_s
+    window_s: 8          #   outage_recovery: start_s, tau_s
+                         #   poisson:         (none; uniform at n/duration)
+                         #   ramp:            rate_start, rate_end
+                         #   periodic:        period_s, amplitude, phase

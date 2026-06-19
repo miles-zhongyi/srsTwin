@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "sources": {
+    "*": "auto",
+    "DATA": "trace",
+    "DATA_ACK": "trace",
+    "RRC_RRC_CONNECTION_REJECT": "trace",
+    "RRC_RRC_CONNECTION_RECONFIGURATION": "trace",
+    "RRC_UE_CAPABILITY_ENQUIRY": "trace"
+  }
+}

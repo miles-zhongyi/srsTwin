@@ -1,0 +1,22 @@
+# UERANSIM gNB for the srsTwin storm scale layer (Layer B). Rendered by generate.py.
+# A second NGAP association into the same Open5GS AMF as the RF-real OCUDU gNB,
+# so the AMF sees the COMBINED registration load of both layers.
+mcc: '001'
+mnc: '01'
+
+nci: '0x000000010'
+idLength: 32
+tac: 7
+
+linkIp: $GNB_IP
+ngapIp: $GNB_IP
+gtpIp: $GNB_IP
+
+amfConfigs:
+  - address: $AMF_IP
+    port: 38412
+
+slices:
+  - sst: 1
+
+ignoreStreamIds: true

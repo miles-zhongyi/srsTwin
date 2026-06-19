@@ -1,0 +1,5 @@
+cd d:\DodonaData\DigitalTwins\srsTwin\integration
+docker compose -f docker-compose.4g.yml up -d --force-recreate
+
+cd d:\DodonaData\DigitalTwins\srsTwin\integration\dashboard
+python serve_dashboard.py --port 9000 --no-open

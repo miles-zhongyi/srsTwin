@@ -1,0 +1,4 @@
+idx,slot,container,imsi,profile,sched_s,launch_s,attach_s,result,exit_code,end_s
+0,0,srstwin_storm_ue00,001010123456780,ideal,5.77,5.77,,failed:attach_timeout,0,131.64
+1,0,srstwin_storm_ue00,001010123456780,ideal,20.47,131.75,,failed:attach_timeout,0,257.53
+2,0,srstwin_storm_ue00,001010123456780,ideal,38.02,257.66,,failed:attach_timeout,0,383.55

@@ -1,0 +1,2 @@
+# srsEPC HSS parser fails on CRLF — last CSV field gets a trailing \r.
+subscribers.csv text eol=lf

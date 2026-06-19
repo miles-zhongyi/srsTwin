@@ -1,0 +1,37 @@
+{
+  "name": "test-a-seq",
+  "duration_s": 40,
+  "seed": 1,
+  "pattern": {
+    "type": "poisson",
+    "params": {}
+  },
+  "layer_a": {
+    "pool_size": 1,
+    "total_arrivals": 3,
+    "behavior": {
+      "ping_count": 3,
+      "attach_timeout_s": 120,
+      "idle_after_s": 0
+    },
+    "slots": [
+      {
+        "slot": 0,
+        "container": "srstwin_storm_ue00",
+        "service": "srsue_00",
+        "ip": "10.53.1.20",
+        "dl_port": 3000,
+        "imsi": "001010123456780",
+        "imei": "353490069873319",
+        "profile": "ideal"
+      }
+    ]
+  },
+  "layer_b": {
+    "total_ues": 0,
+    "base_imsi": null,
+    "gnb_ip": "10.53.1.11"
+  },
+  "compose_file": "..\\docker-compose.storm.yml",
+  "subscribers": "gen\\subscribers.storm.csv"
+}
