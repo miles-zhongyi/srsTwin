@@ -1,0 +1,142 @@
+{
+  "outcome": "attached",
+  "event_count": 34,
+  "sequence": [
+    {
+      "layer": "RRC",
+      "label": "SIB1"
+    },
+    {
+      "layer": "RRC",
+      "label": "systemInformation (SIB2+)"
+    },
+    {
+      "layer": "PHY",
+      "label": "PRACH preamble (Msg1)"
+    },
+    {
+      "layer": "MAC",
+      "label": "Random Access Response (Msg2)"
+    },
+    {
+      "layer": "RRC",
+      "label": "RRC Connection Request (Msg3)"
+    },
+    {
+      "layer": "RRC",
+      "label": "RRC Connection Setup (Msg4)"
+    },
+    {
+      "layer": "RRC",
+      "label": "RRC Connection Setup Complete"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Attach Request"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP Initial UE Message"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Authentication Request"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Authentication Response"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Security Mode Command ksi"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Security Mode Complete ctxt"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP DL NAS Transport"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP UL NAS Transport"
+    },
+    {
+      "layer": "RRC",
+      "label": "Security Mode Command"
+    },
+    {
+      "layer": "RRC",
+      "label": "Security Mode Complete"
+    },
+    {
+      "layer": "RRC",
+      "label": "UE Capability Enquiry"
+    },
+    {
+      "layer": "RRC",
+      "label": "UE Capability Information"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP UE Capability Info Indication"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP Initial Context Setup Request"
+    },
+    {
+      "layer": "RRC",
+      "label": "RRC Connection Reconfiguration"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Attach Accept"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP Initial Context Setup Response"
+    },
+    {
+      "layer": "RRC",
+      "label": "RRC Conn Reconfig Complete"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS Attach Complete"
+    },
+    {
+      "layer": "RRC",
+      "label": "RRC Connection Release"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP UE Context Release Request"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP UE Context Release Command"
+    },
+    {
+      "layer": "S1AP",
+      "label": "S1AP UE Context Release Complete"
+    },
+    {
+      "layer": "RRC",
+      "label": "DL Information Transfer (NAS)"
+    },
+    {
+      "layer": "RRC",
+      "label": "UL Information Transfer (NAS)"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS ESM information response"
+    },
+    {
+      "layer": "NAS",
+      "label": "NAS EMM Information"
+    }
+  ]
+}

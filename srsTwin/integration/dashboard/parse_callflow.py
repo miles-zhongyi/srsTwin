@@ -258,7 +258,9 @@ def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
         signaling = build_signaling(rrc_twin, events)
     if data_4g is None:
         data_4g = {"events": [], "inject_meta": {}, "aligned": [],
-                   "per_templates": {}, "trace_recs": [], "has_live": False}
+                   "per_templates": {}, "trace_recs": [], "has_live": False,
+                   "kpis": {"phases": [], "attach_ms": None, "session_ms": None,
+                            "total_ms": None, "outcome": "none", "event_count": 0}}
     rules = [[prefix, key] for prefix, key in LABEL_RULES]
     return (HTML
             .replace("__DATA__", json.dumps(events))
@@ -443,7 +445,8 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-sv-row.trace-backed:hover{background:rgba(63,185,80,.13)}
 .lte-inject{padding:6px 14px;font-size:11px;border-bottom:1px solid var(--line)}
 .lte-inject b{color:#f9826c}
-.lte-detail{flex:1;min-width:380px;display:flex;flex-direction:column;background:var(--panel);overflow:hidden}
+.lte-right{flex:1;min-width:380px;display:flex;flex-direction:column;overflow:hidden}
+.lte-detail{flex:1;display:flex;flex-direction:column;background:var(--panel);overflow:hidden;min-height:0}
 .lte-detail-body{flex:1;overflow:auto;padding:14px 16px;font-size:12.5px;line-height:1.55}
 .lte-detail-body .info-lead{color:var(--txt);margin:0 0 8px;font-size:13px}
 .lte-detail-body dl{margin:0 0 4px}
@@ -461,6 +464,22 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-raw-box summary::before{content:'\25b8\00a0';display:inline-block}
 .lte-raw-box[open] summary::before{content:'\25be\00a0'}
 .lte-raw-box pre{margin:0;padding:10px;border-top:1px solid var(--line);font-size:11px;line-height:1.45;max-height:360px;overflow:auto}
+/* 4G attach KPI panel — bottom-right of the 4G LTE tab */
+.lte-kpi{flex:0 0 auto;max-height:38%;overflow:auto;border-top:1px solid var(--line);background:var(--panel2);padding:10px 14px}
+.lte-kpi-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.lte-kpi-hdr b{color:#f9826c;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.lte-kpi-total{font-size:11px;color:var(--muted);margin:0 0 8px}
+.lte-kpi-row{display:flex;align-items:center;gap:8px;font-size:11px;margin:5px 0}
+.lte-kpi-row .ph{flex:0 0 140px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lte-kpi-row .bar{flex:1;height:8px;background:var(--line);border-radius:3px;overflow:hidden}
+.lte-kpi-row .bar i{display:block;height:100%;background:#f9826c;border-radius:3px}
+.lte-kpi-row .ms{flex:0 0 56px;text-align:right;color:#c9d1d9;font-variant-numeric:tabular-nums}
+.lte-kpi-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;text-transform:capitalize}
+.lte-kpi-badge.attached{background:#3fb950;color:#07120a}
+.lte-kpi-badge.rejected{background:#f85149;color:#1a0707}
+.lte-kpi-badge.released{background:#8b949e;color:#0a0e14}
+.lte-kpi-badge.in_progress{background:#d29922;color:#1a1400}
+.lte-kpi-badge.none{background:var(--line);color:var(--muted)}
 /* 4G trace tab */
 .ltetrace-wrap{display:flex;flex:1;overflow:hidden;flex-direction:column}
 .ltetrace-bar{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap}
@@ -521,13 +540,16 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
       <div id="lte-inject-bar" class="lte-inject" style="display:none"></div>
       <div class="lte-ev-list" id="lte-ev-list"></div>
     </div>
-    <div class="lte-detail" id="lte-detail">
-      <div class="sig-hdr" style="border-bottom:1px solid var(--line);padding:10px 14px">
-        <b id="lte-detail-title" style="color:#f9826c">Select a 4G event</b>
+    <div class="lte-right">
+      <div class="lte-detail" id="lte-detail">
+        <div class="sig-hdr" style="border-bottom:1px solid var(--line);padding:10px 14px">
+          <b id="lte-detail-title" style="color:#f9826c">Select a 4G event</b>
+        </div>
+        <div class="lte-detail-body" id="lte-detail-body">
+          <p class="info-lead">Click a message in the ladder to see what it does.</p>
+        </div>
       </div>
-      <div class="lte-detail-body" id="lte-detail-body">
-        <p class="info-lead">Click a message in the ladder to see what it does.</p>
-      </div>
+      <div class="lte-kpi" id="lte-kpi"></div>
     </div>
   </div>
 </section>
@@ -1025,6 +1047,10 @@ function applyData(events, meta, rrc){
   updateOverview(); buildLegend(); render(); renderMsgTable();
   if(rrc && rrc.rrc_twin) applyRrc(rrc.rrc_twin, rrc.rrc_trace, rrc.rrc_meta);
   if(rrc && rrc.signaling) applySignaling(rrc.signaling);
+  // The 4G LTE tab used to only get fresh data on a full page reload, since
+  // DATA4G was baked into the HTML at generation time and neither the 5s
+  // live poll nor the Refresh button ever touched it after load.
+  if(rrc && rrc.data_4g){ DATA4G = rrc.data_4g; initLte4g(); }
 }
 
 async function fetchData(url){
@@ -1318,7 +1344,7 @@ renderSigRef();
 loadSigSources();
 
 /* =====================  4G LTE panels  ===================== */
-const DATA4G = __4G_DATA__;
+let DATA4G = __4G_DATA__;
 let lteSelIdx = null;
 let ltetraceSelIdx = null;
 
@@ -1484,6 +1510,18 @@ function buildLteLadderSvg(evs){
              fill="#8b949e" font-family="ui-monospace,Consolas,monospace"
              >${ev.layer} ${timeStr}</text>`
     );
+    // Delay since the previous displayed message (or a "carried in" note when
+    // the log timestamp predates the actual over-the-air send, e.g. NAS
+    // Attach Request — see lteFmtMs/ts_note).
+    if(ev.delay_ms != null || ev.ts_note){
+      const delayLabel = ev.ts_note ? '⚠ queued early' : '+' + lteFmtMs(ev.delay_ms);
+      const delayFill = ev.ts_note ? '#d29922' : '#6e7681';
+      svgLines.push(
+        `<text x="${TOTAL_W - 2}" y="${y+15}" text-anchor="end" font-size="9"
+               fill="${delayFill}" font-family="ui-monospace,Consolas,monospace"
+               >${delayLabel}${ev.ts_note ? `<title>${ev.ts_note.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</title>` : ''}</text>`
+      );
+    }
     if(phaseStr){
       svgLines.push(
         `<text x="4" y="${y+4}" text-anchor="start" font-size="9"
@@ -1498,6 +1536,11 @@ function buildLteLadderSvg(evs){
               id="lte-ladder-svg">
     ${svgLines.join('\n    ')}
   </svg>`;
+}
+
+function lteFmtMs(ms){
+  if(ms == null) return '—';
+  return ms < 1000 ? Math.round(ms) + 'ms' : (ms/1000).toFixed(2) + 's';
 }
 
 // Pull just the hex-dump lines out of a live log entry's detail text
@@ -1540,7 +1583,16 @@ function renderLteDetailBody(ev, aligned){
   const hex = lteHexDump(ev.detail);
   const hasEncoding = !!(decodedMsg || hex);
 
-  let html = lteInfoHtml(ev.info, hasEncoding);
+  let html = '';
+  if(ev.ts_note){
+    html += `<p style="color:#d29922;font-size:11px;margin:0 0 10px">`
+      + `&#9888; ${esc(ev.ts_note)} — the timestamp above is when this layer `
+      + `built the message locally, not when it went over the air.</p>`;
+  } else if(ev.delay_ms != null){
+    html += `<p style="color:var(--muted);font-size:11px;margin:0 0 10px">`
+      + `+${lteFmtMs(ev.delay_ms)} since the previous message in this attempt</p>`;
+  }
+  html += lteInfoHtml(ev.info, hasEncoding);
 
   if(hasEncoding){
     html += `<div class="lte-enc">`
@@ -1667,9 +1719,42 @@ function renderLtetraceTable(){
   });
 }
 
+function renderLteKpi(){
+  const box = document.getElementById('lte-kpi');
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const kpi = DATA4G.kpis;
+  if(!kpi || !kpi.phases || !kpi.phases.length){
+    box.innerHTML = '<div class="lte-kpi-hdr"><b>Attach KPIs</b></div>'
+      + '<p style="color:var(--muted);font-size:11px;margin:0">No attach procedure parsed yet.</p>';
+    return;
+  }
+  const maxMs = Math.max(...kpi.phases.map(p=>p.duration_ms), 1);
+  const rows = kpi.phases.map(p=>{
+    const pct = Math.max(2, Math.round(p.duration_ms / maxMs * 100));
+    return `<div class="lte-kpi-row">`
+      + `<span class="ph" title="${esc(p.phase)}">${esc(p.phase)}</span>`
+      + `<span class="bar"><i style="width:${pct}%"></i></span>`
+      + `<span class="ms">${lteFmtMs(p.duration_ms)}</span>`
+      + `</div>`;
+  }).join('');
+  // Attach (procedure latency) and session (idle/active hold time before
+  // Release) are deliberately separate numbers — folding the hold time into
+  // "attach duration" would make a call that sat connected for 30s look like
+  // attach itself took 30s.
+  const sessionPart = kpi.session_ms != null
+    ? `Session held ${lteFmtMs(kpi.session_ms)}`
+    : 'still connected (no release seen yet)';
+  box.innerHTML = `<div class="lte-kpi-hdr"><b>Attach KPIs</b>`
+    + `<span class="lte-kpi-badge ${esc(kpi.outcome)}">${esc(kpi.outcome.replace('_',' '))}</span></div>`
+    + `<p class="lte-kpi-total">Attach ${lteFmtMs(kpi.attach_ms)} · ${sessionPart} · `
+    + `${kpi.event_count} messages · most recent attempt</p>`
+    + rows;
+}
+
 function initLte4g(){
   renderLteInjectBar();
   renderLteEvList();
+  renderLteKpi();
   renderLtetraceTable();
 }
 

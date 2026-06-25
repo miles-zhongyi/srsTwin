@@ -721,6 +721,13 @@ MESSAGE_INFO_4G: dict[str, dict] = {
         "structure": "UECapabilityInformation: ue-CapabilityRAT-ContainerList (often a sizeable ASN.1 blob).",
         "flow": "Last RRC-only step before bearer setup completes attach.",
     },
+    "s1ap_ue_cap_info_indication": {
+        "summary": "eNB uploads the UE's radio capability to the MME.",
+        "purpose": "Stores the UE-EUTRA-Capability container at the MME so it's available for future paging, handover, and capability-dependent decisions without re-querying the UE.",
+        "protocol": "S1AP · TS 36.413 · eNB → MME",
+        "structure": "UECapabilityInfoIndication: MME/eNB UE S1AP IDs, UE Radio Capability (raw RRC UECapabilityInformation container).",
+        "flow": "Sent right after the eNB receives RRC UE Capability Information, just before Initial Context Setup Response finishes the S1 leg of attach.",
+    },
     "dl_info_transfer": {
         "summary": "RRC carries a downlink NAS PDU transparently to the UE.",
         "purpose": "Generic envelope the eNB uses to relay AMF/MME-originated NAS messages (e.g. Authentication Request, Security Mode Command, Attach Accept) once SRB1 exists.",
@@ -897,6 +904,8 @@ LABEL_RULES_4G: list[tuple[str, str]] = [
     ("UE Capability Information", "ue_cap_information"),
     ("DL Information Transfer", "dl_info_transfer"),
     ("UL Information Transfer", "ul_info_transfer"),
+    ("S1AP UE Capability Info Indication", "s1ap_ue_cap_info_indication"),
+    ("UECapabilityInfoIndication", "s1ap_ue_cap_info_indication"),
     ("S1AP Setup", "s1ap_setup"),
     ("s1SetupRequest", "s1ap_setup"),
     ("S1SetupResponse", "s1ap_setup"),

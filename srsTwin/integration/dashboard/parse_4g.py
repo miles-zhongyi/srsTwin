@@ -71,6 +71,20 @@ PRETTY_4G: dict[str, str] = {
     "ueContextReleaseComplete":              "S1AP UE Context Release Complete",
     "ueContextReleaseRequest":               "S1AP UE Context Release Request",
     "s1Setup":                               "S1AP Setup",
+    # S1AP — exact PascalCase names as logged by srsenb's s1ap.cc (procedure_name
+    # literals on Tx, ASN.1 choice to_string() on Rx) — different casing from the
+    # camelCase keys above, which this stack never actually emits.
+    "s1SetupRequest":                        "S1AP Setup",
+    "S1SetupResponse":                       "S1AP Setup",
+    "InitialUEMessage":                      "S1AP Initial UE Message",
+    "DownlinkNASTransport":                  "S1AP DL NAS Transport",
+    "UplinkNASTransport":                    "S1AP UL NAS Transport",
+    "InitialContextSetupRequest":            "S1AP Initial Context Setup Request",
+    "InitialContextSetupResponse":           "S1AP Initial Context Setup Response",
+    "UECapabilityInfoIndication":            "S1AP UE Capability Info Indication",
+    "UEContextReleaseRequest":               "S1AP UE Context Release Request",
+    "UEContextReleaseCommand":               "S1AP UE Context Release Command",
+    "UEContextReleaseComplete":              "S1AP UE Context Release Complete",
 }
 
 
@@ -111,6 +125,7 @@ _ATTACH_FLOW: list[tuple[str, int, str]] = [
     ("security mode complete",              510, "5 — Bearer setup"),
     ("ue capability enquiry",               520, "5 — Bearer setup"),
     ("ue capability information",           530, "5 — Bearer setup"),
+    ("s1ap ue capability info indication",  535, "5 — Bearer setup"),
     ("s1ap initial context setup request",  540, "5 — Bearer setup"),
     ("rrc connection reconfiguration",      550, "5 — Bearer setup"),
     ("nas attach accept",                   560, "5 — Bearer setup"),
@@ -197,6 +212,42 @@ def split_attach_procedures(events: list[dict]) -> list[list[dict]]:
     return groups
 
 
+# Messages logged when a layer locally decides/builds them, well before the
+# over-the-air send time — substitute the carrier message's timestamp when
+# computing inter-message delay so the ladder doesn't show a bogus negative
+# gap. NAS Attach Request is the one severe case: srsUE logs it the instant
+# the NAS layer decides to attach, right after PLMN selection, ~1s before it
+# actually rides out inside RRC Connection Setup Complete.
+_CARRIED_IN = {
+    "nas attach request": "rrc connection setup complete",
+}
+
+
+def _annotate_delays(group: list[dict]) -> None:
+    """Set delay_ms (gap from the previous displayed event) and _eff_epoch
+    (effective send-time used for that gap) on every event in a procedure
+    group, already sorted into display order."""
+    eff_ts: list[float] = []
+    for ev in group:
+        n = _norm_label(ev.get("label", ""))
+        carrier_name = next((c for k, c in _CARRIED_IN.items() if k in n), None)
+        carrier = None
+        if carrier_name:
+            carrier = next((e for e in group if carrier_name in _norm_label(e.get("label", ""))), None)
+        if carrier is not None:
+            ev["ts_note"] = f'queued by NAS earlier; actually sent with "{carrier["label"]}"'
+            t = _parse_ts(carrier.get("ts", ""))
+        else:
+            t = _parse_ts(ev.get("ts", ""))
+        ev["_eff_epoch"] = t
+        eff_ts.append(t)
+
+    prev_t: float | None = None
+    for ev, t in zip(group, eff_ts):
+        ev["delay_ms"] = None if prev_t is None else round(max(t - prev_t, 0.0) * 1000.0, 1)
+        prev_t = t
+
+
 def order_attach_flow(events: list[dict]) -> list[dict]:
     """Order events by 3GPP attach phase within each procedure cycle."""
     ordered: list[dict] = []
@@ -206,8 +257,103 @@ def order_attach_flow(events: list[dict]) -> list[dict]:
             ev["flow_rank"] = rank
             ev["flow_phase"] = phase
         group.sort(key=lambda e: (e.get("flow_rank", _FLOW_RANK_DEFAULT), e.get("ts", "")))
+        _annotate_delays(group)
         ordered.extend(group)
     return ordered
+
+
+def compute_attach_kpis(events: list[dict]) -> dict:
+    """Per-phase latency breakdown for the most recent attach procedure.
+
+    Uses each event's effective timestamp (set by _annotate_delays), so a
+    NAS message logged at decision time rather than send time doesn't
+    distort the phase it's sorted into.
+
+    attach_ms covers only the attach procedure itself (cell acquisition ->
+    Attach Complete). session_ms is the separate idle/active hold time
+    between Attach Complete and Release starting — a real call can stay
+    connected for seconds to hours there, and lumping it into "phase 6
+    duration" (as an earlier version of this function did) made attach look
+    like it took as long as the whole call.
+    """
+    empty = {"phases": [], "attach_ms": None, "session_ms": None, "total_ms": None,
+             "outcome": "none", "event_count": 0}
+    groups = split_attach_procedures(events)
+    if not groups:
+        return empty
+
+    group = groups[-1]
+    ordered = sorted(group, key=lambda e: (e.get("flow_rank", _FLOW_RANK_DEFAULT), e.get("ts", "")))
+    if not ordered:
+        return empty
+
+    def eff(ev: dict) -> float:
+        t = ev.get("_eff_epoch")
+        return t if t is not None else _parse_ts(ev.get("ts", ""))
+
+    # Only the named 3GPP phases count — trailing housekeeping NAS (EMM
+    # Information, ESM info response, ...) sorts into "Other" and shouldn't
+    # be charged to "attach time".
+    named = [e for e in ordered if e.get("flow_rank", _FLOW_RANK_DEFAULT) < _FLOW_RANK_DEFAULT]
+    if not named:
+        named = ordered
+
+    # Split the attach procedure proper (phases 1-6) from Release — Release
+    # is a separate lifecycle event, and the gap before it is hold time, not
+    # part of any attach phase.
+    attach_events = [e for e in named if e.get("flow_phase", "Other") != "Release"]
+    release_events = [e for e in named if e.get("flow_phase", "Other") == "Release"]
+    if not attach_events:
+        attach_events = named
+
+    t0 = eff(attach_events[0])
+    attach_end = eff(attach_events[-1])
+
+    phase_starts: dict[str, float] = {}
+    phase_order: list[str] = []
+    for ev in attach_events:
+        phase = ev.get("flow_phase", "Other")
+        if phase not in phase_starts:
+            phase_starts[phase] = eff(ev)
+            phase_order.append(phase)
+
+    phases = []
+    for i, phase in enumerate(phase_order):
+        start = phase_starts[phase]
+        end = phase_starts[phase_order[i + 1]] if i + 1 < len(phase_order) else attach_end
+        phases.append({"phase": phase, "duration_ms": round(max(end - start, 0.0) * 1000.0, 1)})
+
+    session_ms = None
+    if release_events:
+        release_start = eff(release_events[0])
+        release_end = eff(release_events[-1])
+        session_ms = round(max(release_start - attach_end, 0.0) * 1000.0, 1)
+        phases.append({"phase": "Release", "duration_ms": round(max(release_end - release_start, 0.0) * 1000.0, 1)})
+
+    labels_norm = [_norm_label(e.get("label", "")) for e in ordered]
+    if any("reject" in l for l in labels_norm):
+        outcome = "rejected"
+    elif any("attach complete" in l for l in labels_norm):
+        outcome = "attached"
+    elif any("release" in l for l in labels_norm):
+        outcome = "released"
+    else:
+        outcome = "in_progress"
+
+    # ordered is sorted by 3GPP procedure rank, not wall-clock time — "Other"
+    # housekeeping (rank 8000) can sort after Release (rank ~900) despite
+    # being logged earlier, so the true span needs an actual max() over time,
+    # not the rank-sorted last element.
+    t_max = max((eff(e) for e in ordered), default=t0)
+
+    return {
+        "phases": phases,
+        "attach_ms": round(max(attach_end - t0, 0.0) * 1000.0, 1),
+        "session_ms": session_ms,
+        "total_ms": round(max(t_max - t0, 0.0) * 1000.0, 1),
+        "outcome": outcome,
+        "event_count": len(ordered),
+    }
 
 
 def dedupe_mirror_events(events: list[dict], window_s: float = 0.5) -> list[dict]:
@@ -395,7 +541,10 @@ def parse_ue4g(entries: list[dict]) -> tuple[list[dict], dict]:
 # ---------------------------------------------------------------------------
 # srseNB log parser (S1AP + RRC server side)
 # ---------------------------------------------------------------------------
-_S1AP_PDU_RE = re.compile(r"\b(Tx|Rx) PDU\b.*?:\s*([A-Za-z][\w-]*)")
+# srsenb's s1ap.cc actually logs "Tx S1AP SDU, <name>[, rnti=0x..]" (no space
+# before the comma) and "Rx S1AP SDU - <name>" (space before the hyphen) —
+# not "Tx/Rx PDU ...: name" (s1ap.cc:2029/2031/2318).
+_S1AP_PDU_RE = re.compile(r"\b(Tx|Rx) S1AP SDU\s*[,-]\s*(.+?)(?:,\s*rnti=0x[0-9a-fA-F]+)?\s*$")
 _ENB_RRC_RE  = re.compile(r"(Sent|Received|Tx|Rx)\s+(\w+)\s+to\s+RNTI|"
                            r"RRC\s+(Tx|Rx)\s+(\w+)")
 
@@ -630,6 +779,7 @@ def build_4g(
       aligned   — side-by-side live + trace records
       per_templates — pycrate-encoded PER bytes from lte_per_templates.json
       has_live  — bool: do any live log files exist?
+      kpis      — per-phase latency breakdown for the most recent attach attempt
     """
     ue_log  = os.path.join(log_dir, "ue4g.log")
     enb_log = os.path.join(log_dir, "enb.log")
@@ -662,4 +812,5 @@ def build_4g(
         "per_record_status": per_record_status,
         "trace_recs":   trace_recs,
         "has_live":     bool(ue_entries or enb_entries),
+        "kpis":         compute_attach_kpis(events),
     }
