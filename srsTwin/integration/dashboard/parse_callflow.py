@@ -259,7 +259,8 @@ _EMPTY_4G = {"events": [], "inject_meta": {}, "aligned": [],
 
 
 def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
-                data_4g=None, data_4g_multi=None, container_status_4g=None):
+                data_4g=None, data_4g_multi=None, container_status_4g=None,
+                kpi_history=None):
     if signaling is None:
         signaling = build_signaling(rrc_twin, events)
     if data_4g is None:
@@ -268,6 +269,8 @@ def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
         data_4g_multi = {"1": data_4g}
     if container_status_4g is None:
         container_status_4g = {}
+    if kpi_history is None:
+        kpi_history = []
     rules = [[prefix, key] for prefix, key in LABEL_RULES]
     return (HTML
             .replace("__DATA__", json.dumps(events))
@@ -280,7 +283,8 @@ def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
             .replace("__SIGNALING__", json.dumps(signaling))
             .replace("__4G_DATA__", json.dumps(data_4g))
             .replace("__4G_DATA_MULTI__", json.dumps(data_4g_multi))
-            .replace("__4G_CONTAINER_STATUS__", json.dumps(container_status_4g)))
+            .replace("__4G_CONTAINER_STATUS__", json.dumps(container_status_4g))
+            .replace("__4G_KPI_HISTORY__", json.dumps(kpi_history)))
 
 
 HTML = r"""<!DOCTYPE html>
@@ -448,6 +452,9 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-pair-btn .dot.released{background:#8b949e}
 .lte-pair-btn .dot.in_progress{background:#d29922}
 .lte-pair-btn .dot.none{background:#484f58}
+.lte-pin-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;font-size:12px;font-weight:600}
+.lte-pin-btn:hover{border-color:#f9826c;color:var(--txt)}
+.lte-pin-btn.on{background:#d29922;color:#1a1400;border-color:#d29922}
 .lte-wrap{display:flex;flex:1;overflow:hidden}
 /* Fixed to the SVG ladder's native width (4 lanes x 120px, see buildLteLadderSvg)
    plus padding — sizing this to content (not flex:1) is what frees up the rest
@@ -502,6 +509,23 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-kpi-badge.released{background:#8b949e;color:#0a0e14}
 .lte-kpi-badge.in_progress{background:#d29922;color:#1a1400}
 .lte-kpi-badge.none{background:var(--line);color:var(--muted)}
+/* 4G live KPI histogram — bottom-left of the 4G LTE tab, accumulated across
+   every completed call flow demo3ue/live_cycler.py has recorded, not just
+   the one currently shown in the ladder. */
+.lte-hist{flex:0 0 auto;max-height:42%;overflow:auto;border-top:1px solid var(--line);background:var(--panel2);padding:10px 14px}
+.lte-hist-hdr{display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+.lte-hist-hdr b{color:#f9826c;font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-right:4px}
+.lte-hist-metric-btn{padding:3px 9px;border-radius:5px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;font-size:10.5px}
+.lte-hist-metric-btn.on{background:#f9826c;color:#0a0e14;border-color:#f9826c}
+.lte-hist-summary{font-size:10.5px;color:var(--muted);margin:0 0 6px}
+.lte-hist-bar-row{display:flex;align-items:center;gap:6px;font-size:10.5px;margin:2px 0}
+.lte-hist-bar-row .bin{flex:0 0 64px;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden}
+.lte-hist-bar-row .bar{flex:1;height:7px;background:var(--line);border-radius:3px;overflow:hidden}
+.lte-hist-bar-row .bar i{display:block;height:100%;background:#58a6ff;border-radius:3px}
+.lte-hist-bar-row .cnt{flex:0 0 22px;color:#c9d1d9;font-variant-numeric:tabular-nums}
+.lte-hist-per-pair{margin-top:8px;font-size:10.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:6px}
+.lte-hist-per-pair span{margin-right:10px}
+.lte-hist-empty{color:var(--muted);font-size:11px;font-style:italic}
 /* 4G trace tab */
 .ltetrace-wrap{display:flex;flex:1;overflow:hidden;flex-direction:column}
 .ltetrace-bar{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);align-items:center;flex-wrap:wrap}
@@ -551,7 +575,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
 </nav>
 
 <section class="panel" id="panel-lte4g">
-  <div class="lte-pair-bar" id="lte-pair-bar"><b>Viewing</b></div>
+  <div class="lte-pair-bar" id="lte-pair-bar"></div>
   <div class="lte-wrap">
     <div class="lte-ladder">
       <div class="lte-lanes">
@@ -562,6 +586,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
       </div>
       <div id="lte-inject-bar" class="lte-inject" style="display:none"></div>
       <div class="lte-ev-list" id="lte-ev-list"></div>
+      <div class="lte-hist" id="lte-hist"></div>
     </div>
     <div class="lte-right">
       <div class="lte-detail" id="lte-detail">
@@ -1065,7 +1090,31 @@ function renderMsgTable(){
 document.getElementById('msg-q').oninput=renderMsgTable;
 layerSel.onchange=renderMsgTable;
 
-function applyData(events, meta, rrc){
+// Pulls fresh 4G data into DATA4G_MULTI/CONTAINER_STATUS_4G/KPI_HISTORY,
+// always re-renders the pair-bar + histogram (cheap, pair-independent), and
+// re-renders the actual ladder/detail/KPI flow only if not pinned and
+// either `force` is set or the 20s interval has elapsed. Pin always wins —
+// it means "don't change what I'm looking at" even across an explicit
+// manual Refresh, not just the background poll.
+function apply4gUpdate(payload, force){
+  if(!payload || !(payload.data_4g_multi || payload.data_4g)) return;
+  if(payload.data_4g_multi){
+    DATA4G_MULTI = payload.data_4g_multi;
+    DATA4G = DATA4G_MULTI[ltePairSel] || DATA4G_MULTI['1'] || DATA4G;
+  } else {
+    DATA4G = payload.data_4g;
+  }
+  if(payload.container_status_4g) CONTAINER_STATUS_4G = payload.container_status_4g;
+  if(payload.kpi_history) KPI_HISTORY = payload.kpi_history;
+  initLte4gLive();
+  const due = Date.now() - lteLastRenderTs >= LTE_RENDER_INTERVAL_MS;
+  if(!ltePinned && (force || due)){
+    initLte4gFlow();
+    lteLastRenderTs = Date.now();
+  }
+}
+
+function applyData(events, meta, rrc, force4g){
   EVENTS=enrichEvents(events); META=meta;
   updateOverview(); buildLegend(); render(); renderMsgTable();
   if(rrc && rrc.rrc_twin) applyRrc(rrc.rrc_twin, rrc.rrc_trace, rrc.rrc_meta);
@@ -1073,16 +1122,7 @@ function applyData(events, meta, rrc){
   // The 4G LTE tab used to only get fresh data on a full page reload, since
   // DATA4G was baked into the HTML at generation time and neither the 5s
   // live poll nor the Refresh button ever touched it after load.
-  if(rrc && rrc.data_4g_multi){
-    DATA4G_MULTI = rrc.data_4g_multi;
-    DATA4G = DATA4G_MULTI[ltePairSel] || DATA4G_MULTI['1'] || DATA4G;
-    if(rrc.container_status_4g) CONTAINER_STATUS_4G = rrc.container_status_4g;
-    initLte4g();
-  } else if(rrc && rrc.data_4g){
-    DATA4G = rrc.data_4g;
-    if(rrc.container_status_4g) CONTAINER_STATUS_4G = rrc.container_status_4g;
-    initLte4g();
-  }
+  apply4gUpdate(rrc, !!force4g);
 }
 
 async function fetchData(url){
@@ -1096,15 +1136,14 @@ async function pollLive(){
     const d=await fetchData('/api/data');
     if(d.message_count!==META.message_count || d.captured!==META.captured){
       applyData(d.events, d.meta, d);
-    } else if(d.data_4g_multi){
+    } else {
       // 5G state unchanged (5G stack likely isn't even running), but the
       // server now pulls fresh 4G logs on every /api/data call — refresh the
-      // 4G tab independently so stopping/starting a UE shows up within one
-      // poll interval instead of being gated behind 5G activity that never happens.
-      DATA4G_MULTI = d.data_4g_multi;
-      DATA4G = DATA4G_MULTI[ltePairSel] || DATA4G_MULTI['1'] || DATA4G;
-      if(d.container_status_4g) CONTAINER_STATUS_4G = d.container_status_4g;
-      initLte4g();
+      // 4G tab independently so stopping/starting a UE shows up live instead
+      // of being gated behind 5G activity that never happens. Not forced —
+      // the ladder/detail/KPI flow still only updates every 20s (or stays
+      // frozen if pinned); the pair-bar and histogram always update.
+      apply4gUpdate(d, false);
     }
     document.getElementById('live-label').textContent='Live · updated '+new Date().toLocaleTimeString();
   }catch(e){}
@@ -1115,7 +1154,7 @@ async function pullRefresh(){
   btn.disabled=true; btn.textContent='Pulling…';
   try{
     const d=await fetchData('/api/refresh');
-    applyData(d.events, d.meta, d);
+    applyData(d.events, d.meta, d, true);  // explicit user action — bypass the 20s interval (pin still wins)
     document.getElementById('live-label').textContent='Live · pulled '+new Date().toLocaleTimeString();
   }catch(e){ alert('Refresh failed: '+e.message); }
   btn.disabled=false; btn.textContent='Refresh';
@@ -1392,8 +1431,19 @@ let DATA4G = DATA4G_MULTI[ltePairSel];
 // Real docker-ps-derived running/stopped state, not log-derived — instant,
 // unlike the KPI/outcome dot which lags behind srsRAN's own buffered file logger.
 let CONTAINER_STATUS_4G = __4G_CONTAINER_STATUS__;
+// Accumulated across every completed call flow demo3ue/live_cycler.py has
+// recorded (independent of which single flow the ladder is showing).
+let KPI_HISTORY = __4G_KPI_HISTORY__;
 let lteSelIdx = null;
 let ltetraceSelIdx = null;
+// Pin freezes the ladder/detail/KPI panel on whatever flow is currently
+// shown; the histogram (built from KPI_HISTORY, not the pinned flow) keeps
+// updating regardless. The ladder otherwise only re-renders every 20s, not
+// every 5s poll, so it isn't visually jarring mid-inspection.
+let ltePinned = false;
+let lteLastRenderTs = 0;
+const LTE_RENDER_INTERVAL_MS = 20000;
+let lteHistMetric = 'du_delay_ms';
 
 const LTE_LAYER_COLORS = {
   PHY:'#a371f7', MAC:'#22d3ee', RRC:'#f9826c', NAS:'#3fb950',
@@ -1800,26 +1850,35 @@ function renderLteKpi(){
 
 function renderLtePairBar(){
   const bar = document.getElementById('lte-pair-bar');
-  const keys = Object.keys(DATA4G_MULTI);
-  if(keys.length <= 1){ bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
+  const keys = Object.keys(DATA4G_MULTI);
   const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const buttons = keys.map(k=>{
-    const d = DATA4G_MULTI[k];
-    const outcome = (d && d.kpis && d.kpis.outcome) || 'none';
-    const on = k===ltePairSel ? ' on' : '';
-    const cs = CONTAINER_STATUS_4G[k] || {};
-    const ueUp = cs.ue === 'running';
-    const stoppedTag = ueUp ? '' : ' (stopped)';
-    const title = `UE container: ${cs.ue || 'unknown'} · eNB container: ${cs.enb || 'unknown'}`
-      + (d && d.has_live ? ` · last known outcome: ${outcome}` : ' · no live logs for this pair');
-    return `<button type="button" class="lte-pair-btn${on}${ueUp ? '' : ' down'}" data-pair="${esc(k)}" title="${esc(title)}">`
-      + `<span class="dot ${esc(outcome)}"></span>UE ${esc(k)}${stoppedTag}</button>`;
-  }).join('');
-  bar.innerHTML = '<b>Viewing</b>' + buttons;
+  let buttons = '';
+  if(keys.length > 1){
+    buttons = keys.map(k=>{
+      const d = DATA4G_MULTI[k];
+      const outcome = (d && d.kpis && d.kpis.outcome) || 'none';
+      const on = k===ltePairSel ? ' on' : '';
+      const cs = CONTAINER_STATUS_4G[k] || {};
+      const ueUp = cs.ue === 'running';
+      const stoppedTag = ueUp ? '' : ' (stopped)';
+      const title = `UE container: ${cs.ue || 'unknown'} · eNB container: ${cs.enb || 'unknown'}`
+        + (d && d.has_live ? ` · last known outcome: ${outcome}` : ' · no live logs for this pair');
+      return `<button type="button" class="lte-pair-btn${on}${ueUp ? '' : ' down'}" data-pair="${esc(k)}" title="${esc(title)}">`
+        + `<span class="dot ${esc(outcome)}"></span>UE ${esc(k)}${stoppedTag}</button>`;
+    }).join('');
+  }
+  const pinTitle = ltePinned
+    ? 'Pinned — the ladder/detail/KPI panel is frozen on this flow. Click to resume live updates.'
+    : 'Freeze the ladder/detail/KPI panel on the current flow. The histogram below keeps updating regardless.';
+  bar.innerHTML = '<b>Viewing</b>' + buttons
+    + '<span style="flex:1"></span>'
+    + `<button type="button" class="lte-pin-btn${ltePinned ? ' on' : ''}" id="lte-pin-btn" title="${esc(pinTitle)}">`
+    + (ltePinned ? '📌 Pinned' : '📌 Pin') + '</button>';
   bar.querySelectorAll('.lte-pair-btn').forEach(btn=>{
     btn.onclick = () => selectLtePair(btn.dataset.pair);
   });
+  document.getElementById('lte-pin-btn').onclick = toggleLtePin;
 }
 
 function selectLtePair(key){
@@ -1830,12 +1889,108 @@ function selectLtePair(key){
   initLte4g();
 }
 
-function initLte4g(){
+function toggleLtePin(){
+  ltePinned = !ltePinned;
   renderLtePairBar();
+}
+
+const LTE_HIST_METRICS = {
+  du_delay_ms: { label: 'DU delay (Msg1→Msg2)', unit: 'ms' },
+  attach_ms:   { label: 'Attach time',               unit: 'ms' },
+  session_ms:  { label: 'Call duration',             unit: 's', divisor: 1000 },
+};
+
+function selectLteHistMetric(metric){
+  lteHistMetric = metric;
+  renderLteHist();
+}
+
+function renderLteHist(){
+  const box = document.getElementById('lte-hist');
+  if(!box) return;
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const metricBtns = Object.keys(LTE_HIST_METRICS).map(m=>{
+    const on = m===lteHistMetric ? ' on' : '';
+    return `<button type="button" class="lte-hist-metric-btn${on}" data-metric="${m}">${esc(LTE_HIST_METRICS[m].label)}</button>`;
+  }).join('');
+
+  const def = LTE_HIST_METRICS[lteHistMetric] || LTE_HIST_METRICS.du_delay_ms;
+  const divisor = def.divisor || 1;
+  const samples = (KPI_HISTORY||[]).filter(s => s[lteHistMetric] != null);
+
+  let bodyHtml;
+  if(samples.length === 0){
+    bodyHtml = '<p class="lte-hist-empty">No completed call flows recorded yet — run '
+      + '<code>demo3ue/live_cycler.py</code> to generate live samples for this histogram.</p>';
+  } else {
+    const vals = samples.map(s => s[lteHistMetric] / divisor);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const nbins = Math.min(8, Math.max(3, Math.round(Math.sqrt(vals.length))));
+    const span = Math.max(max - min, 0.001);
+    const binW = span / nbins;
+    const bins = new Array(nbins).fill(0);
+    vals.forEach(v=>{
+      let idx = Math.floor((v - min) / binW);
+      if(idx >= nbins) idx = nbins - 1;
+      if(idx < 0) idx = 0;
+      bins[idx]++;
+    });
+    const maxCount = Math.max(...bins, 1);
+    const rows = bins.map((c,i)=>{
+      const lo = min + i*binW, hi = min + (i+1)*binW;
+      const pct = Math.max(2, Math.round(c / maxCount * 100));
+      return `<div class="lte-hist-bar-row">`
+        + `<span class="bin">${lo.toFixed(1)}-${hi.toFixed(1)}${esc(def.unit)}</span>`
+        + `<span class="bar"><i style="width:${pct}%"></i></span>`
+        + `<span class="cnt">${c}</span>`
+        + `</div>`;
+    }).join('');
+
+    const mean = vals.reduce((a,b)=>a+b,0) / vals.length;
+    const perPair = {};
+    samples.forEach(s=>{
+      const p = s.pair;
+      (perPair[p] = perPair[p] || []).push(s[lteHistMetric] / divisor);
+    });
+    const perPairHtml = Object.keys(perPair).sort().map(p=>{
+      const pv = perPair[p];
+      const pmean = pv.reduce((a,b)=>a+b,0) / pv.length;
+      return `<span>UE ${esc(p)}: ${pmean.toFixed(1)}${esc(def.unit)} avg (n=${pv.length})</span>`;
+    }).join('');
+
+    bodyHtml = `<p class="lte-hist-summary">n=${vals.length} · mean ${mean.toFixed(1)}${esc(def.unit)} · `
+      + `min ${min.toFixed(1)}${esc(def.unit)} · max ${max.toFixed(1)}${esc(def.unit)}</p>`
+      + rows
+      + `<div class="lte-hist-per-pair">${perPairHtml}</div>`;
+  }
+
+  box.innerHTML = `<div class="lte-hist-hdr"><b>KPI History</b>${metricBtns}</div>` + bodyHtml;
+  box.querySelectorAll('.lte-hist-metric-btn').forEach(btn=>{
+    btn.onclick = () => selectLteHistMetric(btn.dataset.metric);
+  });
+}
+
+// "Live" parts are cheap and pair-independent (or instant container status) —
+// these always refresh, pin or no pin, every poll.
+function initLte4gLive(){
+  renderLtePairBar();
+  renderLteHist();
+}
+
+// The actual call-flow view (ladder/detail/KPI) — gated by pin + the 20s
+// interval everywhere except here, where it's an explicit/immediate render
+// (first load, or the user just clicked a different pair).
+function initLte4gFlow(){
   renderLteInjectBar();
   renderLteEvList();
   renderLteKpi();
   renderLtetraceTable();
+}
+
+function initLte4g(){
+  initLte4gLive();
+  initLte4gFlow();
+  lteLastRenderTs = Date.now();
 }
 
 initLte4g();

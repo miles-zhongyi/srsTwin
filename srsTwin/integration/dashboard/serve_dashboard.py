@@ -42,6 +42,28 @@ _TRACE_DIR_DEFAULT = os.path.normpath(
     os.path.join(HERE, "..", "..", "..", "poc_StressTest", "22_decoded", "00")
 )
 
+# Written by demo3ue/live_cycler.py (one JSON object per line, append-only) —
+# this server only ever reads it. Independent processes; either can be
+# restarted without affecting the other.
+KPI_HISTORY_PATH = os.path.join(HERE, "logs", "kpi_history.jsonl")
+KPI_HISTORY_MAX = 500  # cap what's sent to the browser; the file itself is never trimmed
+
+
+def read_kpi_history() -> list[dict]:
+    if not os.path.isfile(KPI_HISTORY_PATH):
+        return []
+    samples = []
+    with open(KPI_HISTORY_PATH, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                samples.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return samples[-KPI_HISTORY_MAX:]
+
 # 3-UE demo pairs (integration/demo3ue/) — pair 1 is the original single-UE
 # stack and keeps using the flat log_dir (ue4g.log/enb.log) for backward
 # compatibility with everything that predates this. Pairs 2/3 are optional:
@@ -142,6 +164,7 @@ class DashboardState:
                 "data_4g": data_4g,
                 "data_4g_multi": data_4g_multi,
                 "container_status_4g": container_status_4g(),
+                "kpi_history": read_kpi_history(),
             }
 
     def regenerate_html(self) -> None:
@@ -149,7 +172,8 @@ class DashboardState:
             events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g, data_4g_multi = self._build_all()
             html = render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling,
                                data_4g=data_4g, data_4g_multi=data_4g_multi,
-                               container_status_4g=container_status_4g())
+                               container_status_4g=container_status_4g(),
+                               kpi_history=read_kpi_history())
             for name in ("index.html", "callflow.html"):
                 path = os.path.join(HERE, name)
                 with open(path, "w", encoding="utf-8") as f:

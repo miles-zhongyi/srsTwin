@@ -1,5 +1,31 @@
 # How to Run the 3-UE Demo
 
+## 0. Live mode: continuous call flows + KPI histogram on the dashboard
+
+The dashboard's 4G LTE tab has a **bottom-left KPI histogram panel** (DU
+delay / attach time / call duration, aggregated across every completed call
+flow, broken down per UE) and a **📌 Pin** button that freezes the
+ladder/detail/KPI view on whatever flow you're inspecting while the
+histogram keeps accumulating underneath. Neither does anything useful on
+its own — they need actual repeated call flows to draw from. That's what
+`live_cycler.py` is for:
+
+```bash
+cd integration
+python3 demo3ue/live_cycler.py --pairs 1,2,3   # Ctrl+C to stop
+```
+
+This **continuously recreates** each pair's eNB+UE, waits for attach, waits
+for the eNB's inactivity release, and appends one KPI sample per pair per
+round to `dashboard/logs/kpi_history.jsonl` — which the dashboard server
+reads on every poll. Run it deliberately, not as a background-forever
+habit: it's actively disrupting those 3 pairs the whole time it runs.
+
+The dashboard's own auto-poll (5s) keeps the pair-bar/container-status/
+histogram fresh regardless; the ladder/detail/KPI for whichever pair you're
+viewing only re-renders every 20s (or never, while pinned) so it isn't
+distracting mid-inspection.
+
 ## 1. Start the stack (from scratch)
 
 ```bash
