@@ -252,15 +252,22 @@ def build(log_dir):
     return events, meta
 
 
+_EMPTY_4G = {"events": [], "inject_meta": {}, "aligned": [],
+             "per_templates": {}, "trace_recs": [], "has_live": False,
+             "kpis": {"phases": [], "attach_ms": None, "session_ms": None,
+                      "total_ms": None, "outcome": "none", "event_count": 0}}
+
+
 def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
-                data_4g=None):
+                data_4g=None, data_4g_multi=None, container_status_4g=None):
     if signaling is None:
         signaling = build_signaling(rrc_twin, events)
     if data_4g is None:
-        data_4g = {"events": [], "inject_meta": {}, "aligned": [],
-                   "per_templates": {}, "trace_recs": [], "has_live": False,
-                   "kpis": {"phases": [], "attach_ms": None, "session_ms": None,
-                            "total_ms": None, "outcome": "none", "event_count": 0}}
+        data_4g = dict(_EMPTY_4G)
+    if data_4g_multi is None:
+        data_4g_multi = {"1": data_4g}
+    if container_status_4g is None:
+        container_status_4g = {}
     rules = [[prefix, key] for prefix, key in LABEL_RULES]
     return (HTML
             .replace("__DATA__", json.dumps(events))
@@ -271,7 +278,9 @@ def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
             .replace("__RRC_TRACE__", json.dumps(rrc_trace))
             .replace("__RRC_META__", json.dumps(rrc_meta))
             .replace("__SIGNALING__", json.dumps(signaling))
-            .replace("__4G_DATA__", json.dumps(data_4g)))
+            .replace("__4G_DATA__", json.dumps(data_4g))
+            .replace("__4G_DATA_MULTI__", json.dumps(data_4g_multi))
+            .replace("__4G_CONTAINER_STATUS__", json.dumps(container_status_4g)))
 
 
 HTML = r"""<!DOCTYPE html>
@@ -426,6 +435,19 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .tab-4g{border-bottom:2px solid #f9826c !important}
 .tab-4g.on{background:#f9826c !important;color:#0a0e14 !important;border-color:#f9826c !important}
 /* 4G ladder */
+.lte-pair-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel2);flex-shrink:0}
+.lte-pair-bar b{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-right:4px}
+.lte-pair-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;font-size:12px;font-weight:600}
+.lte-pair-btn:hover{border-color:#f9826c;color:var(--txt)}
+.lte-pair-btn.on{background:#f9826c;color:#0a0e14;border-color:#f9826c}
+.lte-pair-btn.down{opacity:.55;border-style:dashed}
+.lte-pair-btn.down.on{opacity:.85}
+.lte-pair-btn .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px}
+.lte-pair-btn .dot.attached{background:#3fb950}
+.lte-pair-btn .dot.rejected{background:#f85149}
+.lte-pair-btn .dot.released{background:#8b949e}
+.lte-pair-btn .dot.in_progress{background:#d29922}
+.lte-pair-btn .dot.none{background:#484f58}
 .lte-wrap{display:flex;flex:1;overflow:hidden}
 /* Fixed to the SVG ladder's native width (4 lanes x 120px, see buildLteLadderSvg)
    plus padding — sizing this to content (not flex:1) is what frees up the rest
@@ -529,6 +551,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
 </nav>
 
 <section class="panel" id="panel-lte4g">
+  <div class="lte-pair-bar" id="lte-pair-bar"><b>Viewing</b></div>
   <div class="lte-wrap">
     <div class="lte-ladder">
       <div class="lte-lanes">
@@ -1050,7 +1073,16 @@ function applyData(events, meta, rrc){
   // The 4G LTE tab used to only get fresh data on a full page reload, since
   // DATA4G was baked into the HTML at generation time and neither the 5s
   // live poll nor the Refresh button ever touched it after load.
-  if(rrc && rrc.data_4g){ DATA4G = rrc.data_4g; initLte4g(); }
+  if(rrc && rrc.data_4g_multi){
+    DATA4G_MULTI = rrc.data_4g_multi;
+    DATA4G = DATA4G_MULTI[ltePairSel] || DATA4G_MULTI['1'] || DATA4G;
+    if(rrc.container_status_4g) CONTAINER_STATUS_4G = rrc.container_status_4g;
+    initLte4g();
+  } else if(rrc && rrc.data_4g){
+    DATA4G = rrc.data_4g;
+    if(rrc.container_status_4g) CONTAINER_STATUS_4G = rrc.container_status_4g;
+    initLte4g();
+  }
 }
 
 async function fetchData(url){
@@ -1062,8 +1094,18 @@ async function pollLive(){
   if(!liveMode) return;
   try{
     const d=await fetchData('/api/data');
-    if(d.message_count!==META.message_count || d.captured!==META.captured)
+    if(d.message_count!==META.message_count || d.captured!==META.captured){
       applyData(d.events, d.meta, d);
+    } else if(d.data_4g_multi){
+      // 5G state unchanged (5G stack likely isn't even running), but the
+      // server now pulls fresh 4G logs on every /api/data call — refresh the
+      // 4G tab independently so stopping/starting a UE shows up within one
+      // poll interval instead of being gated behind 5G activity that never happens.
+      DATA4G_MULTI = d.data_4g_multi;
+      DATA4G = DATA4G_MULTI[ltePairSel] || DATA4G_MULTI['1'] || DATA4G;
+      if(d.container_status_4g) CONTAINER_STATUS_4G = d.container_status_4g;
+      initLte4g();
+    }
     document.getElementById('live-label').textContent='Live · updated '+new Date().toLocaleTimeString();
   }catch(e){}
 }
@@ -1344,7 +1386,12 @@ renderSigRef();
 loadSigSources();
 
 /* =====================  4G LTE panels  ===================== */
-let DATA4G = __4G_DATA__;
+let DATA4G_MULTI = __4G_DATA_MULTI__;
+let ltePairSel = Object.keys(DATA4G_MULTI)[0] || '1';
+let DATA4G = DATA4G_MULTI[ltePairSel];
+// Real docker-ps-derived running/stopped state, not log-derived — instant,
+// unlike the KPI/outcome dot which lags behind srsRAN's own buffered file logger.
+let CONTAINER_STATUS_4G = __4G_CONTAINER_STATUS__;
 let lteSelIdx = null;
 let ltetraceSelIdx = null;
 
@@ -1751,7 +1798,40 @@ function renderLteKpi(){
     + rows;
 }
 
+function renderLtePairBar(){
+  const bar = document.getElementById('lte-pair-bar');
+  const keys = Object.keys(DATA4G_MULTI);
+  if(keys.length <= 1){ bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const buttons = keys.map(k=>{
+    const d = DATA4G_MULTI[k];
+    const outcome = (d && d.kpis && d.kpis.outcome) || 'none';
+    const on = k===ltePairSel ? ' on' : '';
+    const cs = CONTAINER_STATUS_4G[k] || {};
+    const ueUp = cs.ue === 'running';
+    const stoppedTag = ueUp ? '' : ' (stopped)';
+    const title = `UE container: ${cs.ue || 'unknown'} · eNB container: ${cs.enb || 'unknown'}`
+      + (d && d.has_live ? ` · last known outcome: ${outcome}` : ' · no live logs for this pair');
+    return `<button type="button" class="lte-pair-btn${on}${ueUp ? '' : ' down'}" data-pair="${esc(k)}" title="${esc(title)}">`
+      + `<span class="dot ${esc(outcome)}"></span>UE ${esc(k)}${stoppedTag}</button>`;
+  }).join('');
+  bar.innerHTML = '<b>Viewing</b>' + buttons;
+  bar.querySelectorAll('.lte-pair-btn').forEach(btn=>{
+    btn.onclick = () => selectLtePair(btn.dataset.pair);
+  });
+}
+
+function selectLtePair(key){
+  if(!DATA4G_MULTI[key]) return;
+  ltePairSel = key;
+  DATA4G = DATA4G_MULTI[ltePairSel];
+  lteSelIdx = null;
+  initLte4g();
+}
+
 function initLte4g(){
+  renderLtePairBar();
   renderLteInjectBar();
   renderLteEvList();
   renderLteKpi();
@@ -1781,9 +1861,15 @@ def main():
     n_tx = write_transmit_plan(signaling, default_transmit_plan_path(a.log_dir))
     trace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "..", "..", "..", "poc_StressTest", "22_decoded", "00")
-    data_4g = build_4g(a.log_dir, trace_dir if os.path.isdir(trace_dir) else None)
+    real_trace_dir = trace_dir if os.path.isdir(trace_dir) else None
+    data_4g = build_4g(a.log_dir, real_trace_dir)
+    data_4g_multi = {"1": data_4g}
+    for key, sub in (("2", "pair2"), ("3", "pair3")):
+        pair_dir = os.path.join(a.log_dir, sub)
+        if os.path.isdir(pair_dir):
+            data_4g_multi[key] = build_4g(pair_dir, real_trace_dir)
     html_out = render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling,
-                           data_4g=data_4g)
+                           data_4g=data_4g, data_4g_multi=data_4g_multi)
 
     with open(a.out, "w", encoding="utf-8") as f:
         f.write(html_out)

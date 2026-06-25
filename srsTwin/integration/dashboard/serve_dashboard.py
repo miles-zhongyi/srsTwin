@@ -42,11 +42,67 @@ _TRACE_DIR_DEFAULT = os.path.normpath(
     os.path.join(HERE, "..", "..", "..", "poc_StressTest", "22_decoded", "00")
 )
 
+# 3-UE demo pairs (integration/demo3ue/) — pair 1 is the original single-UE
+# stack and keeps using the flat log_dir (ue4g.log/enb.log) for backward
+# compatibility with everything that predates this. Pairs 2/3 are optional:
+# if their containers aren't running, build_4g() just sees missing files and
+# reports has_live=False for that pair, same as pair 1 does when the 4G
+# stack isn't up at all.
+# ue_service/enb_service are docker-compose *service* names (used with
+# `docker compose cp`, which resolves a service to its container itself).
+# ue_name/enb_name are the actual `container_name:` values from the compose
+# files (needed for plain `docker inspect`, which does NOT know about
+# compose service names).
+PAIRS_4G = [
+    {"key": "1", "ue_service": "srsue4g",  "enb_service": "srsenb",
+     "ue_name": "srstwin_ue4g",  "enb_name": "srstwin_enb",  "subdir": None},
+    {"key": "2", "ue_service": "srsue4g2", "enb_service": "srsenb2",
+     "ue_name": "srstwin_ue4g2", "enb_name": "srstwin_enb2", "subdir": "pair2"},
+    {"key": "3", "ue_service": "srsue4g3", "enb_service": "srsenb3",
+     "ue_name": "srstwin_ue4g3", "enb_name": "srstwin_enb3", "subdir": "pair3"},
+]
+
 
 def _ensure_info(events: list) -> None:
     for e in events:
         if not e.get("info", {}).get("purpose"):
             e["info"] = lookup_message_info(e["label"])
+
+
+def container_status_4g() -> dict:
+    """Real container running/stopped state per pair, straight from `docker
+    ps` — not derived from logs, so it isn't subject to srsRAN's own file
+    logger buffering (which can lag real activity by a while). This is what
+    gives instant feedback when you stop/start a UE, independent of how
+    stale the log-derived KPIs are."""
+    names = []
+    for pair in PAIRS_4G:
+        names += [pair["ue_name"], pair["enb_name"]]
+    running = {}
+    try:
+        # `docker inspect` exits non-zero overall if ANY name is missing
+        # (container never created), but still prints valid output for the
+        # ones that DO exist — don't let check=False/missing-some abort the
+        # whole status map, just skip names it couldn't resolve.
+        out = subprocess.run(
+            ["docker", "inspect", "--format", "{{.Name}}={{.State.Status}}", *names],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in out.stdout.splitlines():
+            if "=" not in line:
+                continue
+            name, status_val = line.split("=", 1)
+            running[name.lstrip("/")] = status_val
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+    status = {}
+    for pair in PAIRS_4G:
+        status[pair["key"]] = {
+            "ue":  running.get(pair["ue_name"], "not created"),
+            "enb": running.get(pair["enb_name"], "not created"),
+        }
+    return status
 
 
 class DashboardState:
@@ -63,12 +119,17 @@ class DashboardState:
         rrc_twin, events, signaling = apply_trace_replay(rrc_twin, events, signaling)
         write_transmit_plan(signaling, default_transmit_plan_path(self.log_dir))
         trace_dir = _TRACE_DIR_DEFAULT if os.path.isdir(_TRACE_DIR_DEFAULT) else None
-        data_4g = build_4g(self.log_dir, trace_dir)
-        return events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g
+
+        data_4g_multi = {}
+        for pair in PAIRS_4G:
+            pair_log_dir = os.path.join(self.log_dir, pair["subdir"]) if pair["subdir"] else self.log_dir
+            data_4g_multi[pair["key"]] = build_4g(pair_log_dir, trace_dir)
+        data_4g = data_4g_multi["1"]
+        return events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g, data_4g_multi
 
     def payload(self) -> dict:
         with self.lock:
-            events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g = self._build_all()
+            events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g, data_4g_multi = self._build_all()
             return {
                 "events": events,
                 "meta": meta,
@@ -79,20 +140,51 @@ class DashboardState:
                 "rrc_meta": rrc_meta,
                 "signaling": signaling,
                 "data_4g": data_4g,
+                "data_4g_multi": data_4g_multi,
+                "container_status_4g": container_status_4g(),
             }
 
     def regenerate_html(self) -> None:
         with self.lock:
-            events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g = self._build_all()
+            events, meta, rrc_twin, rrc_trace, rrc_meta, signaling, data_4g, data_4g_multi = self._build_all()
             html = render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling,
-                               data_4g=data_4g)
+                               data_4g=data_4g, data_4g_multi=data_4g_multi,
+                               container_status_4g=container_status_4g())
             for name in ("index.html", "callflow.html"):
                 path = os.path.join(HERE, name)
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(html)
 
+    def _cp4g(self, service: str, src: str, dst: str, notes: list[str]) -> None:
+        dst_path = os.path.join(self.log_dir, dst)
+        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+        compose4g = ["docker", "compose",
+                     "-f", os.path.join(INTEGRATION, "docker-compose.yml"),
+                     "-f", os.path.join(INTEGRATION, "docker-compose.4g.yml"),
+                     "-f", os.path.join(INTEGRATION, "docker-compose.3ue.yml")]
+        cmd = compose4g + ["cp", f"{service}:{src}", dst_path]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            notes.append(f"pulled {service}:{src}")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass  # that pair isn't running — silently skip, build_4g() handles missing logs
+
+    def pull_logs_4g(self) -> list[str]:
+        """Lightweight pull: just the 3 4G pairs (6 small `docker cp`s), no
+        5G/hub. Cheap enough to run on every /api/data poll so stopping or
+        (re)starting a UE/eNB container shows up within one poll interval
+        instead of needing the Refresh button."""
+        os.makedirs(self.log_dir, exist_ok=True)
+        notes: list[str] = []
+        for pair in PAIRS_4G:
+            sub = pair["subdir"] or ""
+            self._cp4g(pair["ue_service"],  "/tmp/ue4g.log", os.path.join(sub, "ue4g.log"), notes)
+            self._cp4g(pair["enb_service"], "/tmp/enb.log",  os.path.join(sub, "enb.log"), notes)
+        return notes
+
     def pull_logs(self) -> list[str]:
-        """Copy logs from running compose stack into log_dir."""
+        """Full pull: 5G + all 4G pairs + hub. Used by the Refresh button
+        (heavier — also fine to be deliberate/manual)."""
         os.makedirs(self.log_dir, exist_ok=True)
         notes: list[str] = []
         compose = ["docker", "compose", "-f", os.path.join(INTEGRATION, "docker-compose.yml")]
@@ -111,22 +203,7 @@ class DashboardState:
         cp("gnb", "/tmp/gnb.log", "gnb.log")
         cp("srsue", "/tmp/ue.log", "ue.log")
 
-        # 4G LTE stack logs (only if the 4G compose overlay is active)
-        compose4g = ["docker", "compose",
-                     "-f", os.path.join(INTEGRATION, "docker-compose.yml"),
-                     "-f", os.path.join(INTEGRATION, "docker-compose.4g.yml")]
-
-        def cp4g(service: str, src: str, dst: str) -> None:
-            dst_path = os.path.join(self.log_dir, dst)
-            cmd = compose4g + ["cp", f"{service}:{src}", dst_path]
-            try:
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
-                notes.append(f"pulled {service}:{src}")
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                pass  # 4G stack not running — silently skip
-
-        cp4g("srsue4g", "/tmp/ue4g.log", "ue4g.log")
-        cp4g("srsenb",  "/tmp/enb.log",  "enb.log")
+        notes += self.pull_logs_4g()
         if self.mode == "hub":
             hub_dst = os.path.join(self.log_dir, "hub.log")
             try:
@@ -174,6 +251,10 @@ def make_handler(state: DashboardState):
                 self.path = "/index.html"
                 return SimpleHTTPRequestHandler.do_GET(self)
             if parsed.path == "/api/data":
+                # Light 4G-only pull on every poll (the browser hits this every
+                # 5s) so stopping/starting a UE+eNB pair shows up live without
+                # needing the heavier Refresh button.
+                state.pull_logs_4g()
                 return self._json(state.payload())
             if parsed.path == "/api/refresh":
                 return self._json(self._refresh())

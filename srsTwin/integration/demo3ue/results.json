@@ -1,0 +1,186 @@
+{
+  "one_pair": [
+    {
+      "pair": 1,
+      "cycle": 1,
+      "du_delay_ms": 33.1,
+      "attach_ms": 1066.5,
+      "session_ms": 35776.5,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 2,
+      "du_delay_ms": 32.3,
+      "attach_ms": 1088.8,
+      "session_ms": 35436.2,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 3,
+      "du_delay_ms": 24.9,
+      "attach_ms": 998.4,
+      "session_ms": 34778.7,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 4,
+      "du_delay_ms": 23.4,
+      "attach_ms": 882.4,
+      "session_ms": 35254.7,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 5,
+      "du_delay_ms": 28.3,
+      "attach_ms": 929.7,
+      "session_ms": 35790.5,
+      "outcome": "attached",
+      "event_count": 35
+    }
+  ],
+  "three_pair": [
+    {
+      "pair": 1,
+      "cycle": 1,
+      "du_delay_ms": 26.5,
+      "attach_ms": 1046.9,
+      "session_ms": 39631.6,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 2,
+      "du_delay_ms": 36.8,
+      "attach_ms": 1222.2,
+      "session_ms": 37563.5,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 3,
+      "du_delay_ms": 31.0,
+      "attach_ms": 1155.7,
+      "session_ms": 38353.7,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 4,
+      "du_delay_ms": 33.8,
+      "attach_ms": 1107.7,
+      "session_ms": 38760.7,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 1,
+      "cycle": 5,
+      "du_delay_ms": 30.6,
+      "attach_ms": 1269.3,
+      "session_ms": 38462.1,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 2,
+      "cycle": 1,
+      "du_delay_ms": 29.5,
+      "attach_ms": 1151.0,
+      "session_ms": 39457.6,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 2,
+      "cycle": 2,
+      "du_delay_ms": 26.0,
+      "attach_ms": 1084.8,
+      "session_ms": 37669.0,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 2,
+      "cycle": 3,
+      "du_delay_ms": 28.9,
+      "attach_ms": 1004.4,
+      "session_ms": 38213.9,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 2,
+      "cycle": 4,
+      "du_delay_ms": 31.8,
+      "attach_ms": 1028.3,
+      "session_ms": 38633.4,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 2,
+      "cycle": 5,
+      "du_delay_ms": 27.1,
+      "attach_ms": 1347.2,
+      "session_ms": 38104.2,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 3,
+      "cycle": 1,
+      "du_delay_ms": 31.4,
+      "attach_ms": 1003.0,
+      "session_ms": 39756.7,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 3,
+      "cycle": 2,
+      "du_delay_ms": 38.5,
+      "attach_ms": 1198.3,
+      "session_ms": 37591.9,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 3,
+      "cycle": 3,
+      "du_delay_ms": 29.0,
+      "attach_ms": 1004.3,
+      "session_ms": 38160.0,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 3,
+      "cycle": 4,
+      "du_delay_ms": 31.4,
+      "attach_ms": 1235.1,
+      "session_ms": 38367.5,
+      "outcome": "attached",
+      "event_count": 35
+    },
+    {
+      "pair": 3,
+      "cycle": 5,
+      "du_delay_ms": 30.6,
+      "attach_ms": 1329.4,
+      "session_ms": 37980.1,
+      "outcome": "attached",
+      "event_count": 35
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# 3-UE demo overlay — adds 2 more independent eNB+UE pairs sharing the SAME
+# srsEPC defined in docker-compose.4g.yml. Each pair is a fully independent
+# cell (own enb_id, own ZMQ link, own subscriber identity) — there is no
+# shared PHY/radio pipeline here (that's the M-plan's Option A, not built
+# yet). This overlay exists to answer a narrower, faster question: what
+# does eNB processing delay and call duration look like with 1 vs 3
+# concurrent independent attach/release cycles competing for the same host
+# CPU.
+#
+# Usage:
+#   docker compose -f docker-compose.4g.yml -f docker-compose.3ue.yml up -d
+#   docker compose -f docker-compose.4g.yml -f docker-compose.3ue.yml up -d srsenb2 srsue4g2   # pair 2 only
+#
+# Pair 1 (srsenb/srsue4g, IMSI ...001) is defined in docker-compose.4g.yml,
+# unchanged. Pairs 2/3 below use IMSI ...002/...003, both added to
+# 4g_configs/subscribers.csv alongside the original.
+
+volumes:
+  enb2-logs:
+  ue4g2-logs:
+  enb3-logs:
+  ue4g3-logs:
+
+services:
+
+  srsenb2:
+    container_name: srstwin_enb2
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.enb
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    volumes:
+      - ./4g_configs/enb2.conf:/enb.conf:ro
+      - ./4g_configs/sib.conf:/4g_configs/sib.conf:ro
+      - ./4g_configs/rr.conf:/4g_configs/rr.conf:ro
+      - ./4g_configs/rb.conf:/4g_configs/rb.conf:ro
+      - enb2-logs:/tmp
+    depends_on:
+      srsepc:
+        condition: service_healthy
+    command: ["/enb.conf"]
+    restart: unless-stopped
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.13
+
+  srsue4g2:
+    container_name: srstwin_ue4g2
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.ue
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./4g_configs/ue4g2.conf:/ue4g.conf:ro
+      - ue4g2-logs:/tmp
+    depends_on:
+      - srsenb2
+    command: ["/ue4g.conf"]
+    restart: unless-stopped
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.15
+
+  srsenb3:
+    container_name: srstwin_enb3
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.enb
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    volumes:
+      - ./4g_configs/enb3.conf:/enb.conf:ro
+      - ./4g_configs/sib.conf:/4g_configs/sib.conf:ro
+      - ./4g_configs/rr.conf:/4g_configs/rr.conf:ro
+      - ./4g_configs/rb.conf:/4g_configs/rb.conf:ro
+      - enb3-logs:/tmp
+    depends_on:
+      srsepc:
+        condition: service_healthy
+    command: ["/enb.conf"]
+    restart: unless-stopped
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.23
+
+  srsue4g3:
+    container_name: srstwin_ue4g3
+    build:
+      context: ../srsRAN_4G
+      dockerfile: ../integration/Dockerfile.ue
+    cap_add:
+      - NET_ADMIN
+      - SYS_NICE
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./4g_configs/ue4g3.conf:/ue4g.conf:ro
+      - ue4g3-logs:/tmp
+    depends_on:
+      - srsenb3
+    command: ["/ue4g.conf"]
+    restart: unless-stopped
+    networks:
+      ran4g:
+        ipv4_address: 10.53.2.25

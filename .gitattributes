@@ -1,0 +1,9 @@
+# Force LF line endings for scripts executed inside Linux containers,
+# regardless of core.autocrlf on the checking-out machine. Without this,
+# core.autocrlf=true (set in this repo) rewrites shell scripts to CRLF on
+# Windows checkouts, which breaks their #!/bin/sh shebang inside containers
+# ("exec /entrypoint.sh: no such file or directory" — the interpreter path
+# becomes "/bin/sh\r", which doesn't exist).
+* text=auto
+*.sh   text eol=lf
+*.bash text eol=lf

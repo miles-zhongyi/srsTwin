@@ -209,6 +209,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _save_message_sources(self):
+        global _dispatcher
         if _dispatcher is None:
             self._send(503, json.dumps({"error": "dispatcher unavailable"}), "application/json")
             return
@@ -229,7 +230,6 @@ class Handler(BaseHTTPRequestHandler):
             cfg.set_mode(name, str(mode))
         cfg.save()
         from common.signaling import clear_dispatcher_cache, get_dispatcher
-        global _dispatcher
         clear_dispatcher_cache()
         _dispatcher = get_dispatcher()
         self._send(200, json.dumps(_dispatcher.describe_sources()), "application/json")
