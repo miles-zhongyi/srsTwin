@@ -1444,6 +1444,11 @@ let ltePinned = false;
 let lteLastRenderTs = 0;
 const LTE_RENDER_INTERVAL_MS = 20000;
 let lteHistMetric = 'du_delay_ms';
+// 'all' or a specific pair key (string, matches DATA4G_MULTI's keys) — lets
+// you isolate one UE's accumulated history even after the others are
+// stopped, since KPI_HISTORY is a permanent log, not tied to current
+// container state.
+let lteHistPairFilter = 'all';
 
 const LTE_LAYER_COLORS = {
   PHY:'#a371f7', MAC:'#22d3ee', RRC:'#f9826c', NAS:'#3fb950',
@@ -1905,6 +1910,11 @@ function selectLteHistMetric(metric){
   renderLteHist();
 }
 
+function selectLteHistPair(key){
+  lteHistPairFilter = key;
+  renderLteHist();
+}
+
 function renderLteHist(){
   const box = document.getElementById('lte-hist');
   if(!box) return;
@@ -1914,14 +1924,32 @@ function renderLteHist(){
     return `<button type="button" class="lte-hist-metric-btn${on}" data-metric="${m}">${esc(LTE_HIST_METRICS[m].label)}</button>`;
   }).join('');
 
+  // Pair filter options come from whatever pairs actually appear in the
+  // history log, NOT from DATA4G_MULTI/current container state — a UE you
+  // just stopped should still be selectable here, its past samples are
+  // still valid history.
+  const histPairKeys = [...new Set((KPI_HISTORY||[]).map(s => String(s.pair)))].sort();
+  const pairFilterBtns = histPairKeys.length > 1
+    ? ['all', ...histPairKeys].map(k=>{
+        const on = k===lteHistPairFilter ? ' on' : '';
+        const label = k === 'all' ? 'All UEs' : `UE ${k}`;
+        return `<button type="button" class="lte-hist-metric-btn${on}" data-pairfilter="${esc(k)}">${esc(label)}</button>`;
+      }).join('')
+    : '';
+
   const def = LTE_HIST_METRICS[lteHistMetric] || LTE_HIST_METRICS.du_delay_ms;
   const divisor = def.divisor || 1;
-  const samples = (KPI_HISTORY||[]).filter(s => s[lteHistMetric] != null);
+  let samples = (KPI_HISTORY||[]).filter(s => s[lteHistMetric] != null);
+  if(lteHistPairFilter !== 'all'){
+    samples = samples.filter(s => String(s.pair) === lteHistPairFilter);
+  }
 
   let bodyHtml;
   if(samples.length === 0){
-    bodyHtml = '<p class="lte-hist-empty">No completed call flows recorded yet — run '
-      + '<code>demo3ue/live_cycler.py</code> to generate live samples for this histogram.</p>';
+    bodyHtml = lteHistPairFilter === 'all'
+      ? '<p class="lte-hist-empty">No completed call flows recorded yet — run '
+        + '<code>demo3ue/live_cycler.py</code> to generate live samples for this histogram.</p>'
+      : `<p class="lte-hist-empty">No recorded samples for UE ${esc(lteHistPairFilter)} yet.</p>`;
   } else {
     const vals = samples.map(s => s[lteHistMetric] / divisor);
     const min = Math.min(...vals), max = Math.max(...vals);
@@ -1952,20 +1980,32 @@ function renderLteHist(){
       const p = s.pair;
       (perPair[p] = perPair[p] || []).push(s[lteHistMetric] / divisor);
     });
-    const perPairHtml = Object.keys(perPair).sort().map(p=>{
-      const pv = perPair[p];
-      const pmean = pv.reduce((a,b)=>a+b,0) / pv.length;
-      return `<span>UE ${esc(p)}: ${pmean.toFixed(1)}${esc(def.unit)} avg (n=${pv.length})</span>`;
-    }).join('');
+    // Redundant once already filtered to one pair — only show the
+    // per-pair breakdown in the "All UEs" view.
+    const perPairHtml = lteHistPairFilter === 'all'
+      ? Object.keys(perPair).sort().map(p=>{
+          const pv = perPair[p];
+          const pmean = pv.reduce((a,b)=>a+b,0) / pv.length;
+          return `<span>UE ${esc(p)}: ${pmean.toFixed(1)}${esc(def.unit)} avg (n=${pv.length})</span>`;
+        }).join('')
+      : '';
 
     bodyHtml = `<p class="lte-hist-summary">n=${vals.length} · mean ${mean.toFixed(1)}${esc(def.unit)} · `
       + `min ${min.toFixed(1)}${esc(def.unit)} · max ${max.toFixed(1)}${esc(def.unit)}</p>`
       + rows
-      + `<div class="lte-hist-per-pair">${perPairHtml}</div>`;
+      + (perPairHtml ? `<div class="lte-hist-per-pair">${perPairHtml}</div>` : '');
   }
 
-  box.innerHTML = `<div class="lte-hist-hdr"><b>KPI History</b>${metricBtns}</div>` + bodyHtml;
-  box.querySelectorAll('.lte-hist-metric-btn').forEach(btn=>{
+  box.innerHTML = `<div class="lte-hist-hdr"><b>KPI History</b>${metricBtns}</div>`
+    + (pairFilterBtns ? `<div class="lte-hist-hdr">${pairFilterBtns}</div>` : '')
+    + bodyHtml;
+  // Both button kinds share the .lte-hist-metric-btn class for styling —
+  // select by data-attribute, not class, so wiring one kind never clobbers
+  // the other's click handler.
+  box.querySelectorAll('[data-pairfilter]').forEach(btn=>{
+    btn.onclick = () => selectLteHistPair(btn.dataset.pairfilter);
+  });
+  box.querySelectorAll('[data-metric]').forEach(btn=>{
     btn.onclick = () => selectLteHistMetric(btn.dataset.metric);
   });
 }
