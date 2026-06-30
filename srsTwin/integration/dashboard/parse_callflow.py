@@ -879,9 +879,8 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
     <div class="lw5g-params-bar" id="lw5g-params-bar-callflow"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-callflow" style="display:none"></div>
     <div class="lw5g-lanes">
-      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs internal to the OCUDU gNB (test_mode)">__ICON_UE__</span>Phantom UE</div>
-      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB — combined DU+CU-CP running with the ru_dummy wall-clock slot driver">__ICON_ENB__</span>OCUDU gNB</div>
-      <div class="lw5g-lanehdr amf"><span class="lw5g-laneicon amf" title="Open5GS AMF — 5G Core network handling NR registration and PDU sessions">__ICON_EPC__</span>Open5GS AMF</div>
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs injected by OCUDU DU test_mode (no real UE process)">__ICON_UE__</span>Phantom UE</div>
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB DU — cycles UEs through RRC Setup inject / run / release every 10 s via ru_dummy slot driver">__ICON_ENB__</span>OCUDU gNB DU</div>
     </div>
     <div id="lw5g-ladder-wrap" style="overflow:auto;flex:1;min-height:200px">
       <div id="lw5g-ladder-empty" class="lw5g-empty">
@@ -899,9 +898,8 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
     <div class="lw5g-params-bar" id="lw5g-params-bar-overview"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-overview" style="display:none"></div>
     <div class="lw5g-lanes" style="margin-bottom:4px">
-      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs internal to the OCUDU gNB (test_mode)">__ICON_UE__</span>Phantom UE</div>
-      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB — combined DU+CU-CP running with the ru_dummy wall-clock slot driver">__ICON_ENB__</span>OCUDU gNB</div>
-      <div class="lw5g-lanehdr amf"><span class="lw5g-laneicon amf" title="Open5GS AMF — 5G Core network handling NR registration and PDU sessions">__ICON_EPC__</span>Open5GS AMF</div>
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs injected by OCUDU DU test_mode">__ICON_UE__</span>Phantom UE</div>
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB DU — manages RRC inject cycles; N2 to Open5GS active for NG Setup">__ICON_ENB__</span>OCUDU gNB DU</div>
     </div>
     <div id="lw5g-kpi-cards" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
     <div class="lw5g-analytics">
@@ -917,22 +915,31 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
       </div>
       <div class="lw5g-chart-box" id="lw5g-topo-box">
         <b>Stack topology</b>
-        <svg id="lw5g-topo-svg" viewBox="0 0 560 120" style="width:100%;margin-top:8px">
-          <defs><marker id="lw5g-ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-            <path d="M0,0 L6,3 L0,6 Z" fill="#8b949e"/></marker></defs>
-          <rect x="10" y="36" width="110" height="44" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
-          <text x="65" y="55" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">Phantom UEs</text>
-          <text x="65" y="71" text-anchor="middle" fill="#8b949e" font-size="9">PHY-abstract</text>
-          <rect x="220" y="36" width="110" height="44" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
-          <text x="275" y="55" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">OCUDU gNB</text>
-          <text x="275" y="71" text-anchor="middle" fill="#8b949e" font-size="9">ru_dummy + test_mode</text>
-          <rect x="430" y="36" width="110" height="44" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
-          <text x="485" y="55" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">Open5GS</text>
-          <text x="485" y="71" text-anchor="middle" fill="#8b949e" font-size="9">5G Core (AMF)</text>
-          <line x1="120" y1="58" x2="218" y2="58" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#lw5g-ar)" stroke-dasharray="5,3"/>
-          <text x="169" y="50" text-anchor="middle" fill="#58a6ff" font-size="9">MAC/RLC/PDCP/RRC</text>
-          <line x1="330" y1="58" x2="428" y2="58" stroke="#8b949e" stroke-width="1.5" marker-end="url(#lw5g-ar)"/>
-          <text x="379" y="50" text-anchor="middle" fill="#8b949e" font-size="9">NGAP</text>
+        <svg id="lw5g-topo-svg" viewBox="0 0 560 150" style="width:100%;margin-top:8px">
+          <defs>
+            <marker id="lw5g-ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#58a6ff"/></marker>
+            <marker id="lw5g-ar2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#3d4f56"/></marker>
+          </defs>
+          <!-- Active path -->
+          <rect x="10" y="36" width="120" height="48" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+          <text x="70" y="55" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">Phantom UEs</text>
+          <text x="70" y="69" text-anchor="middle" fill="#8b949e" font-size="9">DU test_mode</text>
+          <text x="70" y="82" text-anchor="middle" fill="#3fb950" font-size="8">● active cycling</text>
+          <rect x="220" y="36" width="130" height="48" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+          <text x="285" y="55" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">OCUDU gNB DU</text>
+          <text x="285" y="69" text-anchor="middle" fill="#8b949e" font-size="9">ru_dummy + test_mode</text>
+          <text x="285" y="82" text-anchor="middle" fill="#3fb950" font-size="8">● RRC inject every 10 s</text>
+          <!-- Bidirectional RRC Setup arrow -->
+          <line x1="130" y1="56" x2="218" y2="56" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#lw5g-ar)"/>
+          <line x1="218" y1="64" x2="130" y2="64" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#lw5g-ar)"/>
+          <text x="174" y="50" text-anchor="middle" fill="#58a6ff" font-size="9">RRC Setup inject</text>
+          <!-- Grayed AMF (N2 NG Setup only) -->
+          <rect x="430" y="36" width="120" height="48" rx="6" fill="#0d1117" stroke="#3d4f56" stroke-width="1" stroke-dasharray="4,3"/>
+          <text x="490" y="55" text-anchor="middle" fill="#4d6068" font-size="11" font-weight="600">Open5GS AMF</text>
+          <text x="490" y="69" text-anchor="middle" fill="#3d4f56" font-size="9">N2 / NG Setup OK</text>
+          <text x="490" y="82" text-anchor="middle" fill="#3d4f56" font-size="8">DU test bypasses NAS</text>
+          <line x1="350" y1="60" x2="428" y2="60" stroke="#3d4f56" stroke-width="1" marker-end="url(#lw5g-ar2)" stroke-dasharray="4,3"/>
+          <text x="389" y="52" text-anchor="middle" fill="#3d4f56" font-size="8">N2 (NG Setup)</text>
         </svg>
       </div>
     </div>
@@ -1517,20 +1524,19 @@ const LW5G_PATTERNS = [
    desc:'All created UEs connect to the network simultaneously — they all send Registration Request at the same time, creating a coordinated burst of signaling toward the gNB and AMF.'},
 ];
 
-// Phase color palette for the signaling ladder
+// Phase color palette
 const LW5G_PHASE_COLOR = {
-  setup:    '#8b949e',
-  attach:   '#58a6ff',
-  nas:      '#3fb950',
-  security: '#d29922',
-  bearer:   '#bc8cff',
-  release:  '#f85149',
+  setup:   '#8b949e',
+  attach:  '#58a6ff',
+  nas:     '#3fb950',
+  release: '#f85149',
 };
 
-// Lane positions for the 5G ladder: UE, gNB, AMF
-const LW5G_LANES = {UE:0, gNB:1, AMF:2};
-const LW5G_LANE_LABELS = ['UE\nPhantom', 'gNB\nOCUDU', 'AMF\nOpen5GS'];
-const LW5G_LANE_X = i => [100, 340, 580][i];  // SVG x positions
+// 2-lane ladder: Phantom UE (left) ← OCUDU gNB DU (right)
+// In DU test mode the CU-CP/NGAP/AMF path is bypassed; only DU ↔ UE signaling.
+const LW5G_LANES = {UE:0, gNB:1};
+const LW5G_LANE_LABELS = ['Phantom UE\ntest_mode', 'OCUDU gNB\nru_dummy'];
+const LW5G_LANE_X = i => [180, 520][i];
 
 function renderLw5gParamsBar(suffix){
   const bar = document.getElementById(`lw5g-params-bar-${suffix}`);
@@ -1585,80 +1591,73 @@ function renderLw5gParamsPanel(suffix){
   renderLw5gParamsPanel(suffix);
 });
 
-/* ---------- signaling ladder ---------- */
+/* ---------- signaling ladder (2-lane: Phantom UE ← OCUDU DU) ---------- */
 function buildLw5gLadderSvg(events){
   if(!events || events.length === 0) return null;
-  const ROW = 32, PAD_TOP = 60, PAD_BOT = 20;
+  const ROW = 28, PAD_TOP = 56, PAD_BOT = 16, TS_COL = 90, W = 700;
+  const laneXs = [LW5G_LANE_X(0), LW5G_LANE_X(1)];
   const H = PAD_TOP + events.length * ROW + PAD_BOT;
-  const W = 700;
-  const laneXs = [LW5G_LANE_X(0), LW5G_LANE_X(1), LW5G_LANE_X(2)];
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;font-family:monospace;font-size:11px">`;
 
-  // Lane headers
-  const laneColors = ['#58a6ff','#58a6ff','#3fb950'];
-  LW5G_LANE_LABELS.forEach((lbl, i) => {
-    const lines = lbl.split('\\n');
-    svg += `<line x1="${laneXs[i]}" y1="${PAD_TOP-12}" x2="${laneXs[i]}" y2="${H-PAD_BOT}" stroke="#21262d" stroke-width="1.5"/>`;
-    svg += `<rect x="${laneXs[i]-44}" y="6" width="88" height="38" rx="4" fill="#0d1117" stroke="${laneColors[i]}" stroke-width="1.5"/>`;
-    svg += `<text x="${laneXs[i]}" y="22" text-anchor="middle" fill="${laneColors[i]}" font-size="11" font-weight="600">${lines[0]}</text>`;
-    if(lines[1]) svg += `<text x="${laneXs[i]}" y="36" text-anchor="middle" fill="#8b949e" font-size="9">${lines[1]}</text>`;
-  });
-
-  // Arrows
-  const arId = 'lw5g-ldr-ar';
   svg += `<defs>` + Object.entries(LW5G_PHASE_COLOR).map(([ph,col]) =>
-    `<marker id="${arId}-${ph}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="${col}"/></marker>`
+    `<marker id="la-${ph}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="${col}"/></marker>`
   ).join('') + `</defs>`;
+
+  // Lane vertical lines + header boxes
+  laneXs.forEach((x, i) => {
+    const col = i === 0 ? '#58a6ff' : '#58a6ff';
+    const parts = LW5G_LANE_LABELS[i].split('\\n');
+    svg += `<line x1="${x}" y1="${PAD_TOP-10}" x2="${x}" y2="${H-PAD_BOT}" stroke="#21262d" stroke-width="1.5"/>`;
+    svg += `<rect x="${x-52}" y="4" width="104" height="38" rx="4" fill="#0d1117" stroke="${col}" stroke-width="1.5"/>`;
+    svg += `<text x="${x}" y="20" text-anchor="middle" fill="${col}" font-size="11" font-weight="600">${parts[0]}</text>`;
+    if(parts[1]) svg += `<text x="${x}" y="34" text-anchor="middle" fill="#8b949e" font-size="9">${parts[1]}</text>`;
+  });
 
   events.forEach((ev, i) => {
     const y = PAD_TOP + i * ROW + ROW/2;
-    const srcIdx = LW5G_LANES[ev.src];
-    const dstIdx = LW5G_LANES[ev.dst];
     const col = LW5G_PHASE_COLOR[ev.phase] || '#8b949e';
-    const ts = ev.ts_str ? ev.ts_str.substring(11, 23) : '';  // HH:MM:SS.mmm
-    const ue_tag = ev.ue_id !== null && ev.ue_id !== undefined ? ` [ue${ev.ue_id}]` : '';
+    const ts  = ev.ts_str ? ev.ts_str.substring(11, 23) : '';
+    const lbl = String(ev.label || '');
 
-    // Timestamp
-    svg += `<text x="5" y="${y+4}" fill="#8b949e" font-size="9" style="font-variant-numeric:tabular-nums">${ts}</text>`;
+    svg += `<text x="${TS_COL-2}" y="${y+4}" fill="#8b949e" font-size="9" text-anchor="end">${ts}</text>`;
 
-    if(srcIdx !== undefined && dstIdx !== undefined && srcIdx !== dstIdx){
-      const x1 = laneXs[srcIdx], x2 = laneXs[dstIdx];
+    const si = LW5G_LANES[ev.src], di = LW5G_LANES[ev.dst];
+    if(si !== undefined && di !== undefined && si !== di){
+      const x1 = laneXs[si], x2 = laneXs[di];
       const right = x2 > x1;
-      svg += `<line x1="${x1+(right?4:-4)}" y1="${y}" x2="${x2+(right?-10:10)}" y2="${y}"
-        stroke="${col}" stroke-width="1.5" marker-end="url(#${arId}-${ev.phase})"/>`;
-      const mx = (x1+x2)/2;
-      svg += `<text x="${mx}" y="${y-4}" text-anchor="middle" fill="${col}" font-size="9.5">${ev.label}${ue_tag}</text>`;
+      svg += `<line x1="${x1+(right?5:-5)}" y1="${y}" x2="${x2+(right?-11:11)}" y2="${y}"
+        stroke="${col}" stroke-width="1.5" marker-end="url(#la-${ev.phase})"/>`;
+      svg += `<text x="${(x1+x2)/2}" y="${y-5}" text-anchor="middle" fill="${col}" font-size="9.5">${lbl}</text>`;
     } else {
-      // gNB-internal event
-      const x = laneXs[1] || 340;
-      svg += `<circle cx="${x}" cy="${y}" r="4" fill="none" stroke="${col}" stroke-width="1.5"/>`;
-      svg += `<text x="${x+8}" y="${y+4}" fill="${col}" font-size="9.5">${ev.label}${ue_tag}</text>`;
+      // Internal gNB event — horizontal bullet on gNB lane + label to the right
+      const x = laneXs[1];
+      svg += `<circle cx="${x}" cy="${y}" r="4" fill="${col}" stroke="${col}" stroke-width="1"/>`;
+      svg += `<text x="${x+10}" y="${y+4}" fill="${col}" font-size="9.5">${lbl}</text>`;
     }
   });
 
-  svg += '</svg>';
-  return svg;
+  return svg + '</svg>';
 }
 
 function renderLw5gCallFlow(data){
   const empty = document.getElementById('lw5g-ladder-empty');
-  const svg   = document.getElementById('lw5g-ladder-svg');
+  const wrap  = document.getElementById('lw5g-ladder-svg-wrap') || document.getElementById('lw5g-ladder-svg');
   if(!data || !data.has_live || !data.events || data.events.length === 0){
     if(empty) empty.style.display = '';
-    if(svg)   svg.style.display = 'none';
+    if(wrap)  wrap.style.display = 'none';
     return;
   }
   const svgHtml = buildLw5gLadderSvg(data.events);
   if(!svgHtml){ if(empty) empty.style.display = ''; return; }
   if(empty) empty.style.display = 'none';
-  if(svg){
-    svg.style.display = '';
-    // Use outerHTML replacement via wrapper
-    svg.outerHTML = `<div id="lw5g-ladder-svg-wrap" style="overflow-x:auto">${svgHtml}</div>`;
-  } else {
-    const wrap = document.getElementById('lw5g-ladder-svg-wrap');
-    if(wrap) wrap.innerHTML = svgHtml;
+  // Re-use or create the wrapper div
+  let wrapDiv = document.getElementById('lw5g-ladder-svg-wrap');
+  if(!wrapDiv){
+    const old = document.getElementById('lw5g-ladder-svg');
+    if(old) old.outerHTML = '<div id="lw5g-ladder-svg-wrap" style="overflow-x:auto"></div>';
+    wrapDiv = document.getElementById('lw5g-ladder-svg-wrap');
   }
+  if(wrapDiv){ wrapDiv.style.display = ''; wrapDiv.innerHTML = svgHtml; }
 }
 
 /* ---------- overview KPI cards + charts ---------- */
@@ -1670,6 +1669,7 @@ function lw5gKpiCard(lbl, val, color='#e6edf3'){
 }
 
 function drawLw5gLatBar(canvas, ue_kpis){
+  // Shows per-RNTI cycle count (cycles completed for each phantom UE RNTI)
   if(!canvas) return;
   const ctx = canvas.getContext('2d');
   const entries = Object.entries(ue_kpis || {});
@@ -1678,23 +1678,25 @@ function drawLw5gLatBar(canvas, ue_kpis){
   const H = 130;
   canvas.width = W; canvas.height = H;
   ctx.clearRect(0,0,W,H);
-  const barW = Math.min(40, Math.floor((W - 20) / entries.length) - 4);
-  const maxLat = Math.max(...entries.map(([,k]) => k.median_attach_ms || 0), 100);
-  entries.forEach(([ue_id, kpi], i) => {
-    const lat = kpi.median_attach_ms || 0;
-    const bh = Math.max(2, Math.round((lat / maxLat) * (H - 30)));
-    const x = 10 + i * (barW + 4);
-    const y = H - bh - 20;
+  const barW = Math.min(60, Math.floor((W - 20) / entries.length) - 6);
+  const maxCnt = Math.max(...entries.map(([,k]) => k.cycles || 0), 1);
+  entries.forEach(([rnti, kpi], i) => {
+    const cnt = kpi.cycles || 0;
+    const bh = Math.max(4, Math.round((cnt / maxCnt) * (H - 32)));
+    const x = 14 + i * (barW + 6);
+    const y = H - bh - 22;
     ctx.fillStyle = '#58a6ff';
     ctx.beginPath(); ctx.roundRect(x, y, barW, bh, 3); ctx.fill();
+    // RNTI label (short hex)
     ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace';
-    ctx.fillText(`UE${ue_id}`, x + barW/2 - 12, H - 6);
+    const short = rnti ? rnti.slice(-4) : '??';
+    ctx.fillText(short, x + barW/2 - 12, H - 6);
+    // count value above bar
     ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 10px monospace';
-    ctx.fillText(`${Math.round(lat)}`, x + barW/2 - 8, y - 3);
+    ctx.fillText(`${cnt}`, x + barW/2 - 6, y - 3);
   });
-  // Y-axis label
   ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace';
-  ctx.fillText(`${Math.round(maxLat)} ms`, 0, 10);
+  ctx.fillText('cycles / RNTI', 2, 10);
 }
 
 function drawLw5gTimeline(canvas, events){
@@ -1717,8 +1719,8 @@ function drawLw5gTimeline(canvas, events){
   });
   const maxB = Math.max(...buckets, 1);
   const bW = (W - 10) / BUCKETS;
-  const phaseColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149'];
-  const phases = ['attach','nas','security','bearer','release'];
+  const phaseColors = ['#58a6ff','#3fb950','#8b949e','#f85149'];
+  const phases = ['attach','nas','setup','release'];
   phases.forEach((ph, pi) => {
     const phaseEvents = events.filter(e => e.phase === ph);
     const phBuckets = Array(BUCKETS).fill(0);
@@ -1751,15 +1753,15 @@ function renderLw5gOverview(data){
   }
   const s = data.summary || {};
   if(cards) cards.innerHTML = [
-    lw5gKpiCard('NG setup',    s.ng_setup_done ? 'Done' : 'Pending', s.ng_setup_done ? '#3fb950':'#f85149'),
-    lw5gKpiCard('UEs active',  s.active_ues ?? '–', '#58a6ff'),
-    lw5gKpiCard('Attaches',    s.total_attach ?? 0, '#58a6ff'),
-    lw5gKpiCard('Success',     (s.success_rate ?? 0) + '%', s.success_rate >= 90 ? '#3fb950':'#d29922'),
-    lw5gKpiCard('Median (ms)', s.median_attach_ms ?? '–', '#e6edf3'),
-    lw5gKpiCard('P90 (ms)',    s.p90_attach_ms ?? '–', '#e6edf3'),
-    lw5gKpiCard('Reg/min',     s.reg_rate_per_min ?? 0, '#58a6ff'),
+    lw5gKpiCard('N2 (NG Setup)', s.ng_setup_done ? 'OK' : 'Pending', s.ng_setup_done ? '#3fb950':'#f85149'),
+    lw5gKpiCard('UEs active',    s.active_ues ?? '–', '#58a6ff'),
+    lw5gKpiCard('Cycles done',   s.total_cycles ?? 0, '#58a6ff'),
+    lw5gKpiCard('Cycle/min',     s.reg_rate_per_min ?? 0, '#3fb950'),
+    lw5gKpiCard('Setup (ms)',    s.median_setup_ms ?? '–', '#e6edf3'),
+    lw5gKpiCard('P90 (ms)',      s.p90_setup_ms ?? '–', '#e6edf3'),
   ].join('');
 
+  // Lat bar: per-RNTI cycle counts
   const latCanvas = document.getElementById('lw5g-lat-canvas');
   const hasKpis = data.ue_kpis && Object.keys(data.ue_kpis).length > 0;
   if(latEmpty) latEmpty.style.display = hasKpis ? 'none' : '';
@@ -3088,9 +3090,8 @@ function renderLte4gTopoDef(){
 
 initLte4g();
 renderLte4gTopo();
-if((DATA4G.events || []).length){
-  activateTab('lte4g');
-}
+// Default to the Lightweight 5G Twin view on page load
+showTwinView('lightweight5g');
 </script>
 </body></html>
 """

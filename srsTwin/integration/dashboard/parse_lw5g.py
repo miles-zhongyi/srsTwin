@@ -1,19 +1,25 @@
 """
-parse_lw5g.py  –  Lightweight 5G Twin log parser
-=================================================
-Reads /tmp/gnb.log produced by the OCUDU gnb in test-mode (ru_dummy +
-test_mode.test_ue) and extracts:
+parse_lw5g.py  –  Lightweight 5G Twin log parser  (DU test-mode edition)
+=========================================================================
+OCUDU gnb runs in test_mode with ru_dummy.  The phantom UEs cycle at the
+DU level — the gNB DU injects RRC Setup messages to each phantom UE and
+manages attach/run/release/guard cycles entirely within the gnb process.
 
-  events   – ordered list of {ts, ue_id, rnti, src, dst, label, dir, phase}
-             ready for the signaling-ladder renderer
-  ue_kpis  – per-UE dicts with attach_latency_ms, pdu_latency_ms, cycles,
-             success, fail
-  summary  – aggregate KPIs: total_attach, success_rate, median_latency_ms,
-             p90_latency_ms, reg_rate_per_min, active_ues
+Actual log lines (from the [DU] logger, produced every ~10 s per cycle):
 
-The gnb log lines look like:
-  2026-06-09T12:40:01.174331 [RRC     ] [D] ue=0 c-rnti=0x4601: Rx SRB0 CCCH UL rrcSetupRequest (6 B)
-  2026-06-09T12:40:01.247095 [NGAP    ] [I] Rx PDU ue=0 ran_ue=0 amf_ue=1: DownlinkNASTransport
+  [DU      ] [I] TEST_MODE: Injected F1 Setup Response
+  [DU      ] [I] TEST_MODE rnti=0x4444: Injected DL RRC Message (rrcSetup)
+  [DU      ] [I] TEST_MODE cell=0: All 3 UE(s) established. Running for 8000 ms.
+  [DU      ] [I] TEST_MODE cell=0: Attach/detach duration elapsed. Releasing 3 UE(s).
+  [DU      ] [I] TEST_MODE cell=0: All UE(s) released. Entering guard period.
+  [DU      ] [I] TEST_MODE cell=0: Guard period elapsed. Starting new creation cycle.
+
+NG Setup (between gnb and Open5GS AMF) happens once at startup:
+  [NGAP    ] [I] Tx PDU: NGSetupRequest
+  [NGAP    ] [I] Rx PDU: NGSetupResponse
+
+The dashboard ladder shows 2 lanes: Phantom UE ← OCUDU gNB.
+KPIs: cycle rate, setup latency (first rrcSetup → All established), active UEs.
 """
 from __future__ import annotations
 
@@ -25,122 +31,34 @@ from datetime import datetime, timezone
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Log tailing – reads last N lines from the gnb.log docker volume copy
-# (serve_dashboard.py provides the resolved path in LOG_DIR)
+# Log tailing
 # ---------------------------------------------------------------------------
+# We grep for only DU TEST_MODE + NGAP lines to avoid the huge PHY/MAC noise.
+# Keep last N matching lines (each cycle produces ~6 DU lines; this covers >8 h).
+LOG_GREP_LINES = 3_000
 
-LOG_TAIL_LINES = 200_000  # ~20 min of gnb log at debug level
+_TS_PAT    = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)"
+_RNTI_PAT  = r"rnti=(0x[0-9a-fA-F]+)"
 
-# ---------------------------------------------------------------------------
-# Pattern → event mapping
-# Each tuple: (compiled_re, src_node, dst_node, label, direction, phase)
-# direction: "up" UE→AMF, "down" AMF→UE, "internal" gNB-only
-# phase:     attach | nas | security | bearer | release | setup
-# ---------------------------------------------------------------------------
-_TS_PAT = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+)"
-_UE_PAT = r"ue=(\d+)"
-_RNTI_PAT = r"c-rnti=(0x[0-9a-fA-F]+)"
+# ---- NG Setup (one-shot at gnb startup) ----
+_NG_SETUP_REQ  = re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU: NGSetupRequest")
+_NG_SETUP_RSP  = re.compile(_TS_PAT + r".*\[NGAP\s*\].*Rx PDU: NGSetupResponse")
 
-# Returns (ts_str, ue_id_str, rnti_str|None)  from a matched line
-def _ue_rnti(m: re.Match, ts_g=1, ue_g=2, rnti_g=None):
-    ts = m.group(ts_g)
-    ue = m.group(ue_g)
-    rnti = m.group(rnti_g) if rnti_g else None
-    return ts, ue, rnti
-
-
-PATTERNS = [
-    # ---- RRC ----
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Rx SRB0.*rrcSetupRequest"),
-        "UE", "gNB", "RRC Setup Request", "up", "attach",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Tx SRB0.*rrcSetup\b"),
-        "gNB", "UE", "RRC Setup", "down", "attach",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Rx SRB1.*rrcSetupComplete"),
-        "UE", "gNB", "RRC Setup Complete", "up", "attach",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Awaiting RRC Security Mode Complete"),
-        "gNB", "UE", "Security Mode Command", "down", "security",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Received RRC Security Mode Complete"),
-        "UE", "gNB", "Security Mode Complete", "up", "security",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Tx SRB1.*rrcReconfiguration\b"),
-        "gNB", "UE", "RRC Reconfiguration (Bearer)", "down", "bearer",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Rx SRB1.*rrcReconfigurationComplete"),
-        "UE", "gNB", "RRC Reconfig Complete", "up", "bearer",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[RRC\s*\].*" + _UE_PAT + r".*" + _RNTI_PAT +
-                   r".*Tx SRB1.*rrcRelease"),
-        "gNB", "UE", "RRC Release", "down", "release",
-    ),
-    # ---- NGAP (gNB ↔ AMF) ----
-    # NOTE: in gnb.log the NGAP PDU lines have the form:
-    #   [NGAP    ] [I] Tx PDU ue=X ran_ue=X amf_ue=Y: MessageName
-    # so ue=X comes AFTER "Tx PDU" / "Rx PDU", not before.
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU\s+" + _UE_PAT + r".*InitialUEMessage"),
-        "gNB", "AMF", "InitialUEMessage (Reg Req)", "up", "nas",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Rx PDU\s+" + _UE_PAT + r".*DownlinkNASTransport"),
-        "AMF", "gNB", "DownlinkNASTransport", "down", "nas",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU\s+" + _UE_PAT + r".*UplinkNASTransport"),
-        "gNB", "AMF", "UplinkNASTransport", "up", "nas",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Rx PDU\s+" + _UE_PAT + r".*InitialContextSetupRequest"),
-        "AMF", "gNB", "InitialContextSetup Req (Reg Accept)", "down", "nas",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU\s+" + _UE_PAT + r".*InitialContextSetupResponse"),
-        "gNB", "AMF", "InitialContextSetup Resp", "up", "nas",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Rx PDU\s+" + _UE_PAT + r".*PDUSessionResourceSetupRequest"),
-        "AMF", "gNB", "PDU Session Setup Req", "down", "bearer",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU\s+" + _UE_PAT + r".*PDUSessionResourceSetupResponse"),
-        "gNB", "AMF", "PDU Session Setup Resp", "up", "bearer",
-    ),
-    # UEContextReleaseRequest has NO ue= in the line (Tx PDU: UEContextReleaseRequest)
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU:\s*UEContextReleaseRequest"),
-        "gNB", "AMF", "UE Context Release Req", "up", "release",
-    ),
-    (
-        re.compile(_TS_PAT + r".*\[NGAP\s*\].*Rx PDU\s+" + _UE_PAT + r".*UEContextReleaseCommand"),
-        "AMF", "gNB", "UE Context Release Cmd", "down", "release",
-    ),
-]
-
-# Pattern for NG Setup (no per-UE id)
-_NG_SETUP_REQ = re.compile(_TS_PAT + r".*\[NGAP\s*\].*Tx PDU: NGSetupRequest")
-_NG_SETUP_RSP = re.compile(_TS_PAT + r".*\[NGAP\s*\].*Rx PDU: NGSetupResponse")
+# ---- DU test-mode cycle events ----
+_F1_SETUP      = re.compile(_TS_PAT + r".*\[DU\s*\].*TEST_MODE: Injected F1 Setup Response")
+_RRC_SETUP     = re.compile(_TS_PAT + r".*\[DU\s*\].*TEST_MODE\s+" + _RNTI_PAT +
+                             r": Injected DL RRC Message \(rrcSetup\)")
+_ALL_ESTAB     = re.compile(_TS_PAT + r".*\[DU\s*\].*TEST_MODE cell=\d+: All (\d+) UE\(s\) established\."
+                             r" Running for (\d+) ms")
+_RELEASING     = re.compile(_TS_PAT + r".*\[DU\s*\].*TEST_MODE cell=\d+: Attach/detach duration elapsed\."
+                             r" Releasing (\d+) UE\(s\)\.")
+_ALL_RELEASED  = re.compile(_TS_PAT + r".*\[DU\s*\].*TEST_MODE cell=\d+: All UE\(s\) released\."
+                             r" Entering guard period")
+_GUARD_ELAPSED = re.compile(_TS_PAT + r".*\[DU\s*\].*TEST_MODE cell=\d+: Guard period elapsed\."
+                             r" Starting new creation cycle")
 
 
 def _parse_ts(ts_str: str) -> float:
-    """Return POSIX timestamp (seconds since epoch)."""
     try:
         dt = datetime.fromisoformat(ts_str)
         if dt.tzinfo is None:
@@ -150,24 +68,35 @@ def _parse_ts(ts_str: str) -> float:
         return 0.0
 
 
-def _tail_log(path: str, n: int) -> list[str]:
-    """Return last n lines from a text file (or as many as exist)."""
+# Grep pattern that matches only the lines we care about (avoids PHY/MAC noise).
+# The log produces ~150k PHY/MAC lines per minute; tailing blindly would give
+# only ~20s of history.  Grepping for TEST_MODE + NGAP lines is fast and
+# gives us the full history with minimal data.
+_GREP_PAT = r"\[DU[[:space:]]*\].*TEST_MODE|\[NGAP[[:space:]]*\]"
+
+
+def _grep_log(path: str, n: int) -> list[str]:
+    """Grep src file for TEST_MODE/NGAP lines, keep last n."""
     if not os.path.isfile(path):
         return []
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()
+        result = subprocess.run(
+            ["grep", "-E", _GREP_PAT, path],
+            capture_output=True, text=True, timeout=30,
+        )
+        lines = result.stdout.splitlines(keepends=True)
         return lines[-n:]
-    except OSError:
+    except Exception:
         return []
 
 
-def _docker_tail(container: str, src_path: str, n: int) -> list[str]:
-    """Tail src_path inside a running container."""
+def _docker_grep(container: str, src_path: str, n: int) -> list[str]:
+    """Grep src_path inside a running container, keep last n matching lines."""
     try:
         result = subprocess.run(
-            ["docker", "exec", container, "tail", "-n", str(n), src_path],
-            capture_output=True, text=True, timeout=15,
+            ["docker", "exec", container, "sh", "-c",
+             f"grep -E '{_GREP_PAT}' {src_path} | tail -n {n}"],
+            capture_output=True, text=True, timeout=30,
         )
         return result.stdout.splitlines(keepends=True)
     except Exception:
@@ -181,168 +110,195 @@ def _docker_tail(container: str, src_path: str, n: int) -> list[str]:
 def build_lw5g(log_path: Optional[str] = None,
                container: str = "srstwin_gnb") -> dict:
     """
-    Parse gnb.log and return structured data for the dashboard.
+    Parse gnb.log and return dashboard data for the Lightweight 5G Twin.
 
-    log_path: direct filesystem path to gnb.log (use when log is available
-              via docker volume mount on the host).
-    container: docker container name to exec-tail from when log_path is None.
+    log_path: direct filesystem path (host-side); if None (or file absent),
+              tails the log from inside the running container via docker exec.
     """
     if log_path and os.path.isfile(log_path):
-        lines = _tail_log(log_path, LOG_TAIL_LINES)
+        lines = _grep_log(log_path, LOG_GREP_LINES)
     else:
-        lines = _docker_tail(container, "/tmp/gnb.log", LOG_TAIL_LINES)
+        lines = _docker_grep(container, "/tmp/gnb.log", LOG_GREP_LINES)
 
     if not lines:
         return _empty_result()
 
     events: list[dict] = []
-    # per-UE state for latency tracking: ue_id → {rrc_req_ts, ics_ts, ...}
-    ue_state: dict[str, dict] = {}
-    ue_kpis: dict[str, dict] = {}
     ng_setup_done = False
-    ng_setup_ts: Optional[float] = None
     gnb_start_ts: Optional[float] = None
 
-    for line in lines:
-        line = line.rstrip("\n")
+    # Per-cycle state
+    cycle_start_ts: Optional[float] = None   # ts of first rrcSetup in current cycle
+    cycle_rnti_seen: set[str] = set()
+    cycles: list[dict] = []   # [{start_ts, estab_ts, release_ts, released_ts, nof_ues}]
+    _cur_cycle: dict = {}
 
-        # NG Setup (gNB startup)
+    # Per-RNTI stats
+    rnti_cycles: dict[str, int] = {}     # rnti → count of rrcSetup injections
+    rnti_last_setup: dict[str, float] = {}
+
+    active_ues = 0
+
+    for raw_line in lines:
+        line = raw_line.rstrip("\n")
+
+        # ---- NG Setup ----
         m = _NG_SETUP_REQ.match(line)
         if m:
-            ts = _parse_ts(m.group(1))
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
             gnb_start_ts = gnb_start_ts or ts
-            events.append({
-                "ts": ts, "ts_str": m.group(1),
-                "ue_id": None, "rnti": None,
-                "src": "gNB", "dst": "AMF",
-                "label": "NG Setup Request",
-                "dir": "up", "phase": "setup",
-            })
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": "NG Setup Request → AMF",
+                            "phase": "setup"})
             continue
 
         m = _NG_SETUP_RSP.match(line)
         if m:
-            ts = _parse_ts(m.group(1))
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
             gnb_start_ts = gnb_start_ts or ts
             ng_setup_done = True
-            ng_setup_ts = ts
-            events.append({
-                "ts": ts, "ts_str": m.group(1),
-                "ue_id": None, "rnti": None,
-                "src": "AMF", "dst": "gNB",
-                "label": "NG Setup Response",
-                "dir": "down", "phase": "setup",
-            })
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": "NG Setup OK ← AMF",
+                            "phase": "setup"})
             continue
 
-        # Per-UE events
-        for (pat, src, dst, label, dir_, phase) in PATTERNS:
-            m = pat.match(line)
-            if not m:
-                continue
-            ts_str = m.group(1)
-            ts = _parse_ts(ts_str)
-            # Group 2 = ue_id (from _UE_PAT), group 3 = rnti (only RRC patterns)
-            try:
-                ue_id = m.group(2)
-            except (IndexError, re.error):
-                ue_id = None
-            try:
-                rnti = m.group(3)
-            except (IndexError, re.error):
-                rnti = None
-            # rnti group will be None for NGAP patterns that have no c-rnti in the line
-            if rnti and not rnti.startswith("0x"):
-                rnti = None
+        # ---- F1 Setup (once) ----
+        m = _F1_SETUP.match(line)
+        if m:
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
+            gnb_start_ts = gnb_start_ts or ts
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": "F1 Setup (test mode)",
+                            "phase": "setup"})
+            continue
 
-            ev = {
-                "ts": ts, "ts_str": ts_str,
-                "ue_id": ue_id, "rnti": rnti,
-                "src": src, "dst": dst,
-                "label": label, "dir": dir_, "phase": phase,
-                "raw": line[:120],
-            }
-            events.append(ev)
+        # ---- Per-UE rrcSetup injection ----
+        m = _RRC_SETUP.match(line)
+        if m:
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
+            rnti = m.group(2)
+            gnb_start_ts = gnb_start_ts or ts
+            if rnti not in cycle_rnti_seen:
+                cycle_rnti_seen.add(rnti)
+                if cycle_start_ts is None:
+                    cycle_start_ts = ts
+                    _cur_cycle = {"start_ts": ts}
+            rnti_cycles[rnti] = rnti_cycles.get(rnti, 0) + 1
+            rnti_last_setup[rnti] = ts
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": rnti, "src": "gNB", "dst": "UE",
+                            "label": f"RRC Setup [{rnti}]",
+                            "phase": "attach"})
+            continue
 
-            # KPI tracking
-            if ue_id is not None:
-                st = ue_state.setdefault(ue_id, {})
-                kpi = ue_kpis.setdefault(ue_id, {
-                    "cycles": 0, "success": 0, "fail": 0,
-                    "attach_latencies_ms": [], "pdu_latencies_ms": [],
-                    "rnti": rnti,
-                })
-                if rnti:
-                    kpi["rnti"] = rnti
+        # ---- All UEs established ----
+        m = _ALL_ESTAB.match(line)
+        if m:
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
+            nof_ues = int(m.group(2))
+            run_ms  = int(m.group(3))
+            active_ues = nof_ues
+            setup_lat_ms = None
+            if cycle_start_ts is not None:
+                setup_lat_ms = round((ts - cycle_start_ts) * 1000, 1)
+                _cur_cycle["estab_ts"] = ts
+                _cur_cycle["setup_lat_ms"] = setup_lat_ms
+                _cur_cycle["nof_ues"] = nof_ues
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": f"All {nof_ues} UE(s) established · run {run_ms} ms"
+                                     + (f" · setup {setup_lat_ms:.0f} ms" if setup_lat_ms else ""),
+                            "phase": "nas"})
+            cycle_rnti_seen = set()
+            continue
 
-                if label == "RRC Setup Request":
-                    st["rrc_req_ts"] = ts
-                    st["phase"] = "attaching"
-                elif label == "InitialContextSetup Resp":
-                    if "rrc_req_ts" in st:
-                        lat_ms = (ts - st["rrc_req_ts"]) * 1000
-                        kpi["attach_latencies_ms"].append(lat_ms)
-                    st["ics_ts"] = ts
-                    st["phase"] = "registered"
-                    kpi["cycles"] += 1
-                    kpi["success"] += 1
-                elif label == "PDU Session Setup Req":
-                    st["pdu_req_ts"] = ts
-                elif label == "PDU Session Setup Resp":
-                    if "pdu_req_ts" in st:
-                        lat_ms = (ts - st["pdu_req_ts"]) * 1000
-                        kpi["pdu_latencies_ms"].append(lat_ms)
-                elif label == "RRC Release":
-                    st["phase"] = "released"
-            break  # only first matching pattern per line
+        # ---- Releasing ----
+        m = _RELEASING.match(line)
+        if m:
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
+            nof = int(m.group(2))
+            _cur_cycle["release_ts"] = ts
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": f"Releasing {nof} UE(s)",
+                            "phase": "release"})
+            continue
 
-    # Derive per-UE summary stats
-    for ue_id, kpi in ue_kpis.items():
-        lats = kpi["attach_latencies_ms"]
-        kpi["median_attach_ms"] = round(statistics.median(lats), 1) if lats else None
-        kpi["max_attach_ms"] = round(max(lats), 1) if lats else None
-        plats = kpi["pdu_latencies_ms"]
-        kpi["median_pdu_ms"] = round(statistics.median(plats), 1) if plats else None
+        # ---- All released ----
+        m = _ALL_RELEASED.match(line)
+        if m:
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
+            active_ues = 0
+            _cur_cycle["released_ts"] = ts
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": "All UEs released · guard period",
+                            "phase": "release"})
+            continue
 
-    # Aggregate summary
-    all_lats = [l for k in ue_kpis.values() for l in k["attach_latencies_ms"]]
-    total_success = sum(k["success"] for k in ue_kpis.values())
-    total_cycles = sum(k["cycles"] for k in ue_kpis.values())
+        # ---- Guard elapsed → new cycle ----
+        m = _GUARD_ELAPSED.match(line)
+        if m:
+            ts_str, ts = m.group(1), _parse_ts(m.group(1))
+            _cur_cycle["guard_end_ts"] = ts
+            if _cur_cycle.get("start_ts"):
+                cycles.append(dict(_cur_cycle))
+            _cur_cycle = {}
+            cycle_start_ts = None
+            events.append({"ts": ts, "ts_str": ts_str,
+                            "rnti": None, "src": "gNB", "dst": "gNB",
+                            "label": "Guard elapsed · new cycle",
+                            "phase": "setup"})
+            continue
+
+    # ---- Build KPIs ----
+    # Per-RNTI
+    ue_kpis: dict[str, dict] = {}
+    for rnti, cnt in rnti_cycles.items():
+        ue_kpis[rnti] = {"cycles": cnt, "rnti": rnti}
+
+    # Aggregate from completed cycles
+    setup_lats = [c["setup_lat_ms"] for c in cycles if c.get("setup_lat_ms") is not None]
+    total_cycles_completed = len(cycles)
+
     elapsed_min = 0.0
     if events and gnb_start_ts:
         elapsed_min = max((events[-1]["ts"] - gnb_start_ts) / 60.0, 0.01)
 
-    # Active UEs = those not in "released" state
-    active_ues = sum(
-        1 for ue_id, st in ue_state.items()
-        if st.get("phase") not in ("released", None)
-    )
-
     summary = {
         "ng_setup_done": ng_setup_done,
-        "total_attach": total_success,
-        "total_cycles": total_cycles,
-        "success_rate": round(total_success / max(total_cycles, 1) * 100, 1),
-        "median_attach_ms": round(statistics.median(all_lats), 1) if all_lats else None,
-        "p90_attach_ms": round(sorted(all_lats)[int(len(all_lats) * 0.9)], 1) if len(all_lats) >= 5 else None,
-        "reg_rate_per_min": round(total_success / elapsed_min, 2) if elapsed_min > 0 else 0.0,
         "active_ues": active_ues,
-        "nof_ues_seen": len(ue_kpis),
+        "total_cycles": total_cycles_completed,
+        "nof_ues_seen": len(rnti_cycles),
+        "reg_rate_per_min": round(total_cycles_completed / elapsed_min, 2) if elapsed_min > 0 else 0.0,
+        "median_setup_ms": round(statistics.median(setup_lats), 1) if setup_lats else None,
+        "p90_setup_ms": (round(sorted(setup_lats)[int(len(setup_lats) * 0.9)], 1)
+                         if len(setup_lats) >= 5 else None),
         "elapsed_min": round(elapsed_min, 2),
     }
 
-    # Keep only last 200 events for the ladder (avoid huge payloads)
-    # But always keep setup events
+    # Keep last 5 full cycles worth of events (~50 lines) + setup events
+    KEEP_CYCLES = 5
+    keep_n = max(1, total_cycles_completed)
+    cutoff_ts = None
+    # Find the start of the N-th most recent cycle
+    if len(cycles) >= KEEP_CYCLES:
+        cutoff_ts = cycles[-KEEP_CYCLES]["start_ts"]
     setup_evs = [e for e in events if e["phase"] == "setup"]
-    ue_evs = [e for e in events if e["phase"] != "setup"]
-    trimmed = setup_evs + ue_evs[-180:]
-    trimmed.sort(key=lambda e: e["ts"])
+    if cutoff_ts:
+        recent_evs = [e for e in events if e["ts"] >= cutoff_ts and e["phase"] != "setup"]
+    else:
+        recent_evs = [e for e in events if e["phase"] != "setup"]
+    trimmed = sorted(setup_evs + recent_evs, key=lambda e: e["ts"])
 
     return {
         "events": trimmed,
         "ue_kpis": ue_kpis,
         "summary": summary,
-        "has_live": bool(lines),
+        "has_live": bool(rnti_cycles),
     }
 
 
@@ -352,14 +308,12 @@ def _empty_result() -> dict:
         "ue_kpis": {},
         "summary": {
             "ng_setup_done": False,
-            "total_attach": 0,
-            "total_cycles": 0,
-            "success_rate": 0.0,
-            "median_attach_ms": None,
-            "p90_attach_ms": None,
-            "reg_rate_per_min": 0.0,
             "active_ues": 0,
+            "total_cycles": 0,
             "nof_ues_seen": 0,
+            "reg_rate_per_min": 0.0,
+            "median_setup_ms": None,
+            "p90_setup_ms": None,
             "elapsed_min": 0.0,
         },
         "has_live": False,
@@ -374,13 +328,16 @@ if __name__ == "__main__":
 
     log = sys.argv[1] if len(sys.argv) > 1 else None
     result = build_lw5g(log_path=log)
-    print(f"Events parsed:  {len(result['events'])}")
-    print(f"UEs seen:       {result['summary']['nof_ues_seen']}")
-    print(f"Total attaches: {result['summary']['total_attach']}")
-    print(f"Success rate:   {result['summary']['success_rate']}%")
-    print(f"Median attach:  {result['summary']['median_attach_ms']} ms")
-    print(f"Reg rate:       {result['summary']['reg_rate_per_min']} /min")
+    s = result["summary"]
+    print(f"Events:          {len(result['events'])}")
+    print(f"UEs seen:        {s['nof_ues_seen']}  (RNTIs: {list(result['ue_kpis'])})")
+    print(f"Completed cycles:{s['total_cycles']}")
+    print(f"Active UEs now:  {s['active_ues']}")
+    print(f"Cycle rate:      {s['reg_rate_per_min']} /min")
+    print(f"Median setup:    {s['median_setup_ms']} ms")
+    print(f"P90 setup:       {s['p90_setup_ms']} ms")
+    print(f"NG Setup done:   {s['ng_setup_done']}")
     if result["events"]:
-        print("\nFirst 10 events:")
-        for ev in result["events"][:10]:
-            print(f"  [{ev['ts_str']}] ue={ev['ue_id']} {ev['src']}→{ev['dst']}: {ev['label']}")
+        print("\nLast 8 events:")
+        for ev in result["events"][-8:]:
+            print(f"  [{ev['ts_str'][11:23]}] {ev['src']}→{ev['dst']}: {ev['label']}")
