@@ -112,8 +112,12 @@ html_checks = [
     ('panel-lte4g',          'id="panel-lte4g"'),
     ('panel-lte4gtrace',     'id="panel-lte4gtrace"'),
     ('4G LTE tab button',    'data-tab="lte4g"'),
-    ('4G Trace tab button',  'data-tab="lte4gtrace"'),
-    ('DATA4G variable',      'const DATA4G ='),
+    ('Overview tab button',  'data-tab="overview"'),
+    ('sidebar element',      'id="sidebar"'),
+    ('pair power button JS', 'function togglePairPower'),
+    ('4G stack topology diagram', 'id="lte4g-topo"'),
+    ('favicon link',         'rel="icon"'),
+    ('DATA4G_MULTI variable', 'let DATA4G_MULTI ='),
     ('lte-ev-list element',  'id="lte-ev-list"'),
     ('ltetrace-tbody',       'id="ltetrace-tbody"'),
     ('lte-inject-bar',       'id="lte-inject-bar"'),
@@ -127,33 +131,78 @@ html_checks = [
     ('status badges CSS',    'status-badge'),
     ('statusBadge JS',       'function statusBadge'),
     ('templateStatus JS',    'function templateStatusForTrace'),
+    ('Simulation sidebar item', 'data-twin="simulation" data-title="Simulation"'),
+    ('Simulation tab button', 'data-tab="simulation" data-twin="simulation"'),
+    ('panel-simulation',     'id="panel-simulation"'),
+    ('single shared twin-ctrl-bar in header', 'id="twin-ctrl-bar"'),
+    ('setTwinBackend JS',    'function setTwinBackend'),
+    ('renderSimulation JS',  'function renderSimulation'),
+    ('showTwinView JS',      'function showTwinView'),
+    ('Simulation tab green accent', 'tab-sim'),
+    ('Simulation mobility map canvas', 'id="sim-geo-canvas"'),
+    ('drawSimGeoMap JS',     'function drawSimGeoMap'),
+    ('Simulation sidebar green accent', '.sidebar-item[data-twin="simulation"].on'),
+    ('Simulation analytics: PRB donut', 'id="sim-prb-donut"'),
+    ('Simulation analytics: outcome bar', 'id="sim-outcome-bar"'),
+    ('Lightweight 5G sidebar item', 'data-twin="lightweight5g" data-title="Lightweight 5G Twin"'),
+    ('Lightweight 5G Call Flow tab', 'data-tab="lw5g_callflow"'),
+    ('Lightweight 5G Overview tab', 'data-tab="lw5g_overview"'),
+    ('panel-lw5g-callflow',  'id="panel-lw5g-callflow"'),
+    ('panel-lw5g-overview',  'id="panel-lw5g-overview"'),
+    ('Lightweight 5G blue accent', 'tab-lw5g'),
+    ('Lightweight 5G sidebar blue accent', '.sidebar-item[data-twin="lightweight5g"].on'),
+    ('activation pattern selector JS', 'LW5G_PATTERNS'),
+    ('NOT_BUILT_TWINS JS',   'NOT_BUILT_TWINS'),
 ]
 for name, needle in html_checks:
     check(f"HTML: {name}", needle in html)
 
 # ---------------------------------------------------------------------------
 # 5. DATA4G payload in HTML contains trace_recs and per_templates
+#
+# The dashboard embeds one payload PER 4G pair (DATA4G_MULTI = {"1": {...},
+# "2": {...}, "3": {...}}) since the multi-pair refactor — there's no longer
+# a single `const DATA4G = {...}` literal. Pull pair "1" (falling back to
+# whichever key is first) the same way the page's own JS does:
+# `DATA4G_MULTI[ltePairSel] || DATA4G_MULTI['1'] || DATA4G`.
+#
+# trace_recs/per_templates/per_record_status live in a separate
+# DATA4G_SHARED object, not inside each pair — they're identical across
+# every pair (same trace_dir), so embedding them per-pair used to triple
+# ~7.7MB of JSON (the dashboard HTML had grown to ~24MB). `aligned[]`
+# entries reference a trace record by `trace_idx` into
+# DATA4G_SHARED.trace_recs rather than embedding a full copy inline.
 # ---------------------------------------------------------------------------
-data4g_m = re.search(r'const DATA4G = (\{.+?\});', html, re.DOTALL)
-if data4g_m:
+data4g_m = re.search(r'let DATA4G_MULTI = (\{.+?\});', html, re.DOTALL)
+shared_m = re.search(r'let DATA4G_SHARED = (\{.+?\});', html, re.DOTALL)
+if data4g_m and shared_m:
     try:
-        payload = json.loads(data4g_m.group(1))
-        check("DATA4G.trace_recs in payload",    "trace_recs" in payload)
-        check("DATA4G.per_templates in payload", "per_templates" in payload)
+        multi = json.loads(data4g_m.group(1))
+        shared = json.loads(shared_m.group(1))
+        payload = multi.get("1") or next(iter(multi.values()), {})
+        check("DATA4G_SHARED.trace_recs present",    "trace_recs" in shared)
+        check("DATA4G_SHARED.per_templates present", "per_templates" in shared)
         check("DATA4G.aligned in payload",       "aligned" in payload)
         check("DATA4G.inject_meta in payload",   "inject_meta" in payload)
-        check("DATA4G.per_record_status in payload", "per_record_status" in payload)
-        n_tr   = len(payload.get("trace_recs",   []))
-        n_tmpl = len(payload.get("per_templates", {}))
-        check(f"DATA4G has {n_tr} trace_recs (> 0)",    n_tr > 0)
-        check(f"DATA4G has {n_tmpl} PER templates (> 0)", n_tmpl > 0)
-        statuses = payload.get("per_record_status", {})
+        check("DATA4G_SHARED.per_record_status present", "per_record_status" in shared)
+        check("trace_recs/per_templates NOT duplicated per-pair",
+              "trace_recs" not in payload and "per_templates" not in payload)
+        n_tr   = len(shared.get("trace_recs",   []))
+        n_tmpl = len(shared.get("per_templates", {}))
+        check(f"DATA4G_SHARED has {n_tr} trace_recs (> 0)",    n_tr > 0)
+        check(f"DATA4G_SHARED has {n_tmpl} PER templates (> 0)", n_tmpl > 0)
+        statuses = shared.get("per_record_status", {})
         check("per-record status has rrcConnectionRequest exact",
               statuses.get("rrcConnectionRequest", {}).get("status") == "exact")
         check("per-record status has S1AP reconstructed",
               statuses.get("S1_DOWNLINK_NAS_TRANSPORT", {}).get("status") == "reconstructed")
-        tr_statuses = {r.get("_template_status") for r in payload.get("trace_recs", [])}
+        tr_statuses = {r.get("_template_status") for r in shared.get("trace_recs", [])}
         check("trace records include template status annotations", bool(tr_statuses - {None}))
+        aligned_with_idx = [a for a in payload.get("aligned", []) if a.get("trace_idx") is not None]
+        check("aligned[] uses trace_idx, not inline trace copies",
+              all("trace" not in a for a in payload.get("aligned", [])))
+        check("at least one aligned entry resolves to a real trace_idx",
+              len(aligned_with_idx) > 0 or not payload.get("has_live"))
     except json.JSONDecodeError as exc:
         check("DATA4G JSON parses OK", False, str(exc)[:80])
 else:

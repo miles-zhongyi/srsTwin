@@ -258,15 +258,52 @@ _EMPTY_4G = {"events": [], "inject_meta": {}, "aligned": [],
                       "total_ms": None, "outcome": "none", "event_count": 0}}
 
 
+# Small inline-SVG line icons for the 4 elements of the 4G stack — reused in
+# the ladder's lane headers and the Overview tab's topology diagram so both
+# places use the exact same visual vocabulary. `stroke="currentColor"` so
+# they pick up whatever color the containing element sets.
+ICON_UE = ('<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6">'
+           '<rect x="6" y="2" width="8" height="16" rx="2"/><line x1="8.5" y1="15" x2="11.5" y2="15"/></svg>')
+ICON_IQ = ('<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5">'
+           '<path d="M2 10h2.5l1.8-5 3 10 2.6-8 1.6 3h3.5"/></svg>')
+ICON_ENB = ('<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3">'
+            '<path d="M10 2l-3.4 16h1.8l0.9-4h1.4l0.9 4h1.8L10 2z"/>'
+            '<line x1="6.4" y1="10" x2="13.6" y2="10"/><line x1="7.4" y1="14" x2="12.6" y2="14"/></svg>')
+ICON_EPC = ('<svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5">'
+            '<ellipse cx="10" cy="4.2" rx="6" ry="2.1"/>'
+            '<path d="M4 4.2v11.6c0 1.16 2.7 2.1 6 2.1s6-.94 6-2.1V4.2"/>'
+            '<path d="M4 10c0 1.16 2.7 2.1 6 2.1s6-.94 6-2.1"/></svg>')
+
+
 def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
-                data_4g=None, data_4g_multi=None, container_status_4g=None,
-                kpi_history=None):
+                data_4g=None, data_4g_multi=None, data_4g_shared=None,
+                container_status_4g=None, kpi_history=None):
     if signaling is None:
         signaling = build_signaling(rrc_twin, events)
     if data_4g is None:
         data_4g = dict(_EMPTY_4G)
     if data_4g_multi is None:
         data_4g_multi = {"1": data_4g}
+    if data_4g_shared is None:
+        # Caller didn't pre-compute the dedup (serve_dashboard.py does;
+        # the standalone `python parse_callflow.py` CLI path doesn't) — do
+        # it here so every render_html() caller gets the same saving.
+        # trace_recs/per_templates/per_record_status are identical across
+        # every pair (same trace_dir); embedding them once per pair instead
+        # of once total was the single biggest contributor to the
+        # dashboard HTML bloating to ~24MB. Build new dicts rather than
+        # mutating the caller's — render_html() shouldn't have side effects
+        # on its arguments.
+        shared_keys = ("trace_recs", "per_templates", "per_record_status")
+        data_4g_shared = {}
+        for k in shared_keys:
+            for pair_data in data_4g_multi.values():
+                if k in pair_data:
+                    data_4g_shared[k] = pair_data[k]
+                    break
+        data_4g_multi = {key: {k: v for k, v in pair_data.items() if k not in shared_keys}
+                         for key, pair_data in data_4g_multi.items()}
+        data_4g = {k: v for k, v in data_4g.items() if k not in shared_keys}
     if container_status_4g is None:
         container_status_4g = {}
     if kpi_history is None:
@@ -283,14 +320,20 @@ def render_html(events, meta, rrc_twin, rrc_trace, rrc_meta, signaling=None,
             .replace("__SIGNALING__", json.dumps(signaling))
             .replace("__4G_DATA__", json.dumps(data_4g))
             .replace("__4G_DATA_MULTI__", json.dumps(data_4g_multi))
+            .replace("__4G_DATA_SHARED__", json.dumps(data_4g_shared))
             .replace("__4G_CONTAINER_STATUS__", json.dumps(container_status_4g))
-            .replace("__4G_KPI_HISTORY__", json.dumps(kpi_history)))
+            .replace("__4G_KPI_HISTORY__", json.dumps(kpi_history))
+            .replace("__ICON_UE__", ICON_UE)
+            .replace("__ICON_IQ__", ICON_IQ)
+            .replace("__ICON_ENB__", ICON_ENB)
+            .replace("__ICON_EPC__", ICON_EPC))
 
 
 HTML = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>srsTwin Dashboard</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
 :root{
   --bg:#0a0e14; --panel:#121820; --panel2:#1a2230; --line:#2d3640; --muted:#8b949e;
@@ -299,23 +342,146 @@ HTML = r"""<!DOCTYPE html>
 }
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--txt)}
-header{padding:8px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#101620,#0a0e14);
-  display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;flex-shrink:0}
-header h1{margin:0;font-size:15px;font-weight:600;white-space:nowrap}
-.livebar{display:none;align-items:center;gap:8px;font-size:12px;margin:0;flex-shrink:0}
+header{padding:6px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#101620,#0a0e14);
+  display:flex;align-items:center;gap:14px;min-height:44px;flex-shrink:0}
+header h1{margin:0;font-size:14px;font-weight:600;white-space:nowrap}
+.icon-btn{background:transparent;border:1px solid var(--line);color:var(--txt);border-radius:6px;
+  padding:4px 9px;cursor:pointer;font-size:15px;line-height:1;flex-shrink:0}
+.icon-btn:hover{border-color:var(--RRC)}
+.livebar{display:none;align-items:center;gap:8px;font-size:12px;margin:0 0 0 auto;flex-shrink:0}
 .livebar .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .livebar button{padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);
   color:var(--txt);cursor:pointer;font-size:11px}.livebar button:hover{border-color:var(--RRC)}
-.tabs{display:flex;gap:4px;padding:6px 18px 0;border-bottom:1px solid var(--line);background:var(--panel);flex-shrink:0}
-.tab{padding:8px 14px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;
-  border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs{display:flex;gap:4px;flex-shrink:0}
+.tab{padding:7px 14px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;
+  border-radius:6px}
 .tab:hover{color:var(--txt)}
-.tab.on{color:var(--txt);border-bottom-color:var(--RRC);font-weight:600}
-.panel{display:none;height:calc(100vh - 76px);overflow:hidden;min-height:0}
+.tab.on{color:var(--txt);background:var(--panel2);font-weight:600}
+.sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;
+  transition:opacity .15s ease;z-index:40}
+.sidebar-overlay.open{opacity:1;pointer-events:auto}
+.sidebar{position:fixed;top:0;left:0;bottom:0;width:260px;background:var(--panel);border-right:1px solid var(--line);
+  transform:translateX(-100%);transition:transform .18s ease;z-index:50;padding:14px;overflow-y:auto}
+.sidebar.open{transform:translateX(0)}
+.sidebar-hdr{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:10px}
+.sidebar-item{display:block;width:100%;text-align:left;padding:9px 10px;border-radius:6px;border:1px solid var(--line);
+  background:transparent;color:var(--txt);cursor:pointer;font-size:13px;margin-bottom:6px}
+.sidebar-item.on{background:#f9826c;color:#0a0e14;font-weight:600;border-color:#f9826c}
+.sidebar-item[data-twin="simulation"].on{background:#3fb950;color:#06170a;border-color:#3fb950}
+.sidebar-item[data-twin="lightweight5g"].on{background:#58a6ff;color:#08131f;border-color:#58a6ff}
+.sidebar-item-tag{float:right;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+  border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.sidebar-item.on .sidebar-item-tag{color:inherit;border-color:rgba(0,0,0,.25)}
+.sidebar-item-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:8px;
+  vertical-align:1px;background:#484f58}
+.sidebar-item-dot.running{background:#3fb950}
+.sidebar-item-dot.partial{background:#d29922}
+.sidebar-note{font-size:11px;color:var(--muted);margin-top:8px}
+.panel{display:none;height:calc(100vh - 60px);overflow:hidden;min-height:0}
 .panel.on{display:flex;flex-direction:column}
+.analytics-placeholder{padding:24px;color:var(--muted);font-size:13px}
+/* --- twin start/stop control bar (shared by every twin's panel) --- */
+.twin-ctrl-bar{display:flex;align-items:center;gap:8px;flex-shrink:0;font-size:12px}
+.twin-ctrl-status{color:var(--muted);white-space:nowrap}
+.twin-ctrl-status .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.twin-ctrl-status .dot.running{background:#3fb950}
+.twin-ctrl-status .dot.stopped{background:#484f58}
+.twin-ctrl-status .dot.partial{background:#d29922}
+.twin-ctrl-status .dot.busy{background:#58a6ff;animation:pulse 1s infinite}
+.twin-ctrl-btn{padding:4px 10px;border-radius:6px;border:1px solid var(--line);white-space:nowrap;
+  background:var(--panel2);color:var(--txt);cursor:pointer;font-size:11.5px;font-weight:600}
+.twin-ctrl-btn:hover{border-color:#f9826c}
+.twin-ctrl-btn.accent-sim:hover{border-color:#3fb950}
+.twin-ctrl-btn.accent-lw5g:hover{border-color:#58a6ff}
+.twin-ctrl-btn:disabled{opacity:.45;cursor:not-allowed}
+.twin-ctrl-btn.busy{opacity:.5;pointer-events:none}
+/* --- simulation twin panel --- */
+.sim-wrap{padding:20px 22px;overflow:auto;flex:1}
+.sim-desc{color:var(--muted);font-size:12.5px;margin:0 0 18px;line-height:1.5;max-width:760px}
+.sim-empty{color:var(--muted);font-size:12px;padding:14px 0}
+.sim-ue-row{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:14px 16px;margin-bottom:16px}
+.sim-ue-row b{font-size:13px;min-width:120px;flex-shrink:0}
+.sim-ue-row input[type=range]{flex:1;accent-color:#3fb950}
+.sim-ue-row .sim-ue-val{min-width:64px;text-align:right;font-variant-numeric:tabular-nums;font-size:12.5px}
+.sim-stats{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.sim-stats .stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px;min-width:84px}
+.sim-stats .stat .v{font-size:16px;font-weight:600;color:#3fb950}
+.sim-stats .stat .l{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+.sim-geo-box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:18px}
+.sim-geo-hdr{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12.5px}
+.sim-geo-hdr b{color:#3fb950}
+.sim-geo-count{color:var(--muted);font-size:11px}
+.sim-geo-cols{display:flex;gap:16px}
+.sim-geo-left{flex:1 1 50%;min-width:0}
+.sim-geo-right{flex:1 1 50%;min-width:0;display:flex;flex-direction:column;gap:10px}
+#sim-geo-canvas{display:block;width:100%;height:340px;background:#0a0e14;border-radius:6px}
+.sim-geo-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10.5px;color:var(--muted)}
+.sim-geo-legend-item{display:inline-flex;align-items:center;gap:5px}
+.sim-geo-legend-item i{display:inline-block;width:8px;height:8px;border-radius:50%}
+.sim-chart-box{background:#0a0e14;border-radius:6px;padding:10px 12px;flex:1;display:flex;flex-direction:column;min-height:0}
+.sim-chart-box b{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.sim-chart-box canvas{flex:1;width:100%;min-height:130px}
+@media (max-width: 980px){ .sim-geo-cols{flex-direction:column} }
+.sim-sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.sim-site{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.sim-site h4{margin:0 0 8px;font-size:12.5px;color:#3fb950}
+.sim-cell-row{display:flex;align-items:center;gap:8px;font-size:11px;margin:5px 0}
+.sim-cell-row .cid{flex:0 0 44px;color:var(--muted)}
+.sim-cell-row .bar{flex:1;height:8px;background:var(--line);border-radius:3px;overflow:hidden}
+.sim-cell-row .bar i{display:block;height:100%;border-radius:3px}
+.sim-cell-row .pct{flex:0 0 36px;text-align:right;color:#c9d1d9;font-variant-numeric:tabular-nums}
+/* --- lightweight 5G twin (preview, no backend yet) --- */
+.lw5g-wrap{padding:20px 22px;overflow:auto;flex:1}
+.lw5g-desc{color:var(--muted);font-size:12.5px;margin:0 0 16px;line-height:1.5;max-width:760px}
+.lw5g-params-bar{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:12px 16px;margin-bottom:10px;flex-wrap:wrap}
+.lw5g-params-bar b{font-size:13px;min-width:110px;flex-shrink:0}
+.lw5g-params-bar input[type=range]{flex:1;min-width:160px;accent-color:#58a6ff}
+.lw5g-params-bar .lw5g-ue-val{min-width:54px;text-align:right;font-size:12.5px;font-variant-numeric:tabular-nums}
+.lw5g-params-toggle{padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:transparent;
+  color:var(--muted);cursor:pointer;font-size:12px}
+.lw5g-params-toggle:hover{color:var(--txt);border-color:#58a6ff}
+.lw5g-params-panel{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);
+  margin-bottom:16px;font-size:12.5px}
+.lw5g-params-panel b{display:block;margin-bottom:8px;color:#58a6ff;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.lw5g-pattern-row{display:flex;gap:8px;flex-wrap:wrap}
+.lw5g-pattern-btn{padding:7px 14px;border-radius:6px;border:1px solid var(--line);background:var(--panel);
+  color:var(--muted);cursor:pointer;font-size:12.5px;font-weight:600}
+.lw5g-pattern-btn:hover{border-color:#58a6ff;color:var(--txt)}
+.lw5g-pattern-btn.on{background:#58a6ff;color:#08131f;border-color:#58a6ff}
+.lw5g-pattern-desc{color:var(--muted);font-size:11.5px;margin:8px 0 0}
+.lw5g-empty{background:var(--panel);border:1px dashed var(--line);border-radius:8px;padding:28px;
+  color:var(--muted);font-size:13px;text-align:center;line-height:1.6}
+.lw5g-empty b{color:var(--txt);display:block;margin-bottom:6px;font-size:14px}
+.lw5g-analytics{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.lw5g-chart-box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-height:140px}
+.lw5g-chart-box b{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.lw5g-chart-empty{color:var(--muted);font-size:12px;font-style:italic;margin:24px 0 0}
 /* --- overview --- */
 .overview{padding:20px 22px;overflow:auto;flex:1}
+.overview-kpi-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.overview-kpi-row .lte-hist,.overview-kpi-row .lte-kpi{flex:1 1 360px;max-height:340px;
+  border:1px solid var(--line);border-top:1px solid var(--line);border-radius:8px}
+.lte4g-topo-row{display:flex;align-items:center;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:26px 18px;overflow-x:auto}
+.lte4g-topo-node{display:flex;flex-direction:column;align-items:center;gap:7px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:10px;padding:14px 18px;cursor:pointer;color:var(--txt);
+  min-width:104px;flex-shrink:0;transition:border-color .15s,background-color .15s;font:inherit}
+.lte4g-topo-node:hover{border-color:#f9826c}
+.lte4g-topo-node.sel{border-color:#f9826c;background:#2a1c16}
+.lte4g-topo-node .lte4g-topo-icon{color:#f9826c;width:28px;height:28px;display:flex;align-items:center;justify-content:center}
+.lte4g-topo-node .lte4g-topo-icon svg{width:26px;height:26px}
+.lte4g-topo-node b{font-size:13px}
+.lte4g-topo-node small{font-size:10px;color:var(--muted);font-family:monospace}
+.lte4g-topo-link{flex:1;min-width:36px;height:2px;background:var(--line);position:relative;margin:0 2px;align-self:center}
+.lte4g-topo-pulse{position:absolute;top:-3px;left:0;width:8px;height:8px;border-radius:50%;
+  background:#58a6ff;box-shadow:0 0 6px #58a6ff;animation:lte4gFlow 2.4s linear infinite;opacity:0}
+@keyframes lte4gFlow{0%{left:0;opacity:0}8%{opacity:1}88%{opacity:1}100%{left:calc(100% - 8px);opacity:0}}
+.lte4g-topo-def{margin-top:14px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;font-size:12.5px;color:var(--txt);line-height:1.55}
+.lte4g-topo-def b{color:#f9826c;display:block;margin-bottom:6px;font-size:13px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
 .card .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
@@ -438,6 +604,10 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 /* --- 4G LTE tabs --- */
 .tab-4g{border-bottom:2px solid #f9826c !important}
 .tab-4g.on{background:#f9826c !important;color:#0a0e14 !important;border-color:#f9826c !important}
+.tab-sim{border-bottom:2px solid #3fb950 !important}
+.tab-sim.on{background:#3fb950 !important;color:#06170a !important;border-color:#3fb950 !important}
+.tab-lw5g{border-bottom:2px solid #58a6ff !important}
+.tab-lw5g.on{background:#58a6ff !important;color:#08131f !important;border-color:#58a6ff !important}
 /* 4G ladder */
 .lte-pair-bar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel2);flex-shrink:0}
 .lte-pair-bar b{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-right:4px}
@@ -455,6 +625,16 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-pin-btn{padding:5px 12px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer;font-size:12px;font-weight:600}
 .lte-pin-btn:hover{border-color:#f9826c;color:var(--txt)}
 .lte-pin-btn.on{background:#d29922;color:#1a1400;border-color:#d29922}
+.lte-pair-chip{display:inline-flex;align-items:center;gap:2px}
+.lte-pair-power{padding:5px 7px;border-radius:6px;border:1px solid var(--line);background:var(--panel);
+  color:var(--muted);cursor:pointer;font-size:11px;line-height:1}
+.lte-pair-power:hover{border-color:#f9826c;color:var(--txt)}
+.lte-pair-power.busy{opacity:.5;pointer-events:none}
+.lte-params-toggle{padding:5px 10px;border-radius:6px;border:1px solid transparent;background:transparent;
+  color:var(--muted);cursor:pointer;font-size:12px}
+.lte-params-toggle:hover{color:var(--txt)}
+.lte-params-panel{padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel);
+  color:var(--muted);font-size:12px;flex-shrink:0}
 .lte-wrap{display:flex;flex:1;overflow:hidden}
 /* Fixed to the SVG ladder's native width (4 lanes x 120px, see buildLteLadderSvg)
    plus padding — sizing this to content (not flex:1) is what frees up the rest
@@ -462,6 +642,7 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-ladder{flex:0 0 520px;overflow:auto;border-right:1px solid var(--line);display:flex;flex-direction:column}
 .lte-lanes{display:flex;gap:0;padding:8px 14px;border-bottom:2px solid #f9826c;background:var(--panel2)}
 .lte-lanehdr{flex:1;text-align:center;font-size:12px;font-weight:600;color:#f9826c;padding:4px 0}
+.lte-icon{display:inline-flex;vertical-align:-2px;margin-right:5px;color:#f9826c;opacity:.85}
 .lte-ev-list{flex:1;overflow:auto;padding:4px 0}
 .lte-ev{display:flex;align-items:center;padding:5px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-size:12px}
 .lte-ev:hover{background:rgba(249,130,108,.06)}
@@ -558,35 +739,55 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
 </style></head>
 <body>
 <header>
-  <h1>srsTwin · 5G SA Digital Twin</h1>
+  <button type="button" class="icon-btn" id="sidebar-toggle" title="Choose digital twin dashboard" aria-label="Open sidebar">&#9776;</button>
+  <h1 id="header-title">Full-stack 4G LTE Digital Twin</h1>
+  <nav class="tabs">
+    <button class="tab tab-4g on" data-tab="lte4g" data-twin="lte4g_full">4G LTE</button>
+    <button class="tab" data-tab="overview" data-twin="lte4g_full">Overview</button>
+    <button class="tab tab-sim" data-tab="simulation" data-twin="simulation" style="display:none">Simulation</button>
+    <button class="tab tab-lw5g" data-tab="lw5g_callflow" data-twin="lightweight5g" style="display:none">Call Flow</button>
+    <button class="tab tab-lw5g" data-tab="lw5g_overview" data-twin="lightweight5g" style="display:none">Overview</button>
+  </nav>
+  <div class="twin-ctrl-bar" id="twin-ctrl-bar">
+    <span class="twin-ctrl-status" id="twin-ctrl-status">checking…</span>
+    <button type="button" class="twin-ctrl-btn" id="twin-ctrl-btn">Stop backend</button>
+  </div>
   <div class="livebar" id="livebar">
     <span class="dot"></span><span id="live-label">Live</span>
     <button type="button" id="btn-refresh">Refresh</button>
   </div>
 </header>
-<nav class="tabs">
-  <button class="tab on" data-tab="callflow">Signaling flow</button>
-  <button class="tab" data-tab="messages">Messages</button>
-  <button class="tab" data-tab="rrc">RRC → IQ</button>
-  <button class="tab" data-tab="signaling">RRC · S1 · X2</button>
-  <button class="tab tab-4g" data-tab="lte4g">4G LTE</button>
-  <button class="tab tab-4g" data-tab="lte4gtrace">4G Trace</button>
-  <button class="tab" data-tab="overview">Overview</button>
-</nav>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-hdr">Digital Twin Dashboards</div>
+  <button type="button" class="sidebar-item on" data-twin="lte4g_full" data-title="Full-stack 4G LTE Digital Twin">
+    <span class="sidebar-item-dot" id="sidebar-dot-lte4g_full"></span>Full-stack 4G LTE Digital Twin
+  </button>
+  <button type="button" class="sidebar-item" data-twin="simulation" data-title="Simulation">
+    <span class="sidebar-item-dot" id="sidebar-dot-simulation"></span>Simulation
+  </button>
+  <button type="button" class="sidebar-item" data-twin="lightweight5g" data-title="Lightweight 5G Twin">
+    <span class="sidebar-item-dot" id="sidebar-dot-lightweight5g"></span>Lightweight 5G Twin
+    <span class="sidebar-item-tag">preview</span>
+  </button>
+  <div class="sidebar-note">Selecting a twin starts its backend and stops the other twin's — only one runs at a time.</div>
+</aside>
 
-<section class="panel" id="panel-lte4g">
+<section class="panel on" id="panel-lte4g" data-twin="lte4g_full">
   <div class="lte-pair-bar" id="lte-pair-bar"></div>
+  <div class="lte-params-panel" id="lte-params-panel" style="display:none">
+    No configurable parameters yet for this digital twin.
+  </div>
   <div class="lte-wrap">
     <div class="lte-ladder">
       <div class="lte-lanes">
-        <div class="lte-lanehdr">srsUE 4G</div>
-        <div class="lte-lanehdr">ZMQ IQ</div>
-        <div class="lte-lanehdr">srseNB</div>
-        <div class="lte-lanehdr">srsEPC</div>
+        <div class="lte-lanehdr"><span class="lte-icon" title="UE — the simulated phone (srsue)">__ICON_UE__</span>srsUE 4G</div>
+        <div class="lte-lanehdr"><span class="lte-icon" title="The ZeroMQ-emulated radio link carrying IQ samples">__ICON_IQ__</span>ZMQ IQ</div>
+        <div class="lte-lanehdr"><span class="lte-icon" title="eNB — the LTE base station (srsenb)">__ICON_ENB__</span>srseNB</div>
+        <div class="lte-lanehdr"><span class="lte-icon" title="EPC — the LTE core network (srsepc)">__ICON_EPC__</span>srsEPC</div>
       </div>
       <div id="lte-inject-bar" class="lte-inject" style="display:none"></div>
       <div class="lte-ev-list" id="lte-ev-list"></div>
-      <div class="lte-hist" id="lte-hist"></div>
     </div>
     <div class="lte-right">
       <div class="lte-detail" id="lte-detail">
@@ -597,12 +798,11 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
           <p class="info-lead">Click a message in the ladder to see what it does.</p>
         </div>
       </div>
-      <div class="lte-kpi" id="lte-kpi"></div>
     </div>
   </div>
 </section>
 
-<section class="panel" id="panel-lte4gtrace">
+<section class="panel" id="panel-lte4gtrace" data-twin="lte4g_full">
   <div class="ltetrace-wrap">
     <div class="ltetrace-bar">
       <b>4G Trace</b>
@@ -635,8 +835,19 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   </div>
 </section>
 
-<section class="panel" id="panel-overview">
+<section class="panel" id="panel-overview" data-twin="lte4g_full">
   <div class="overview">
+    <h3 style="font-size:14px;margin:0 0 4px">4G LTE Full-Stack Topology</h3>
+    <p style="margin:0 0 12px;font-size:11.5px;color:var(--muted)">Click any element for what it is and what it does.</p>
+    <div id="lte4g-topo"></div>
+    <div id="lte4g-topo-def" class="lte4g-topo-def" style="display:none"></div>
+
+    <h3 style="font-size:14px;margin:22px 0 10px">4G LTE KPIs</h3>
+    <div class="overview-kpi-row">
+      <div class="lte-hist" id="lte-hist"></div>
+      <div class="lte-kpi" id="lte-kpi"></div>
+    </div>
+
     <div class="cards" id="cards"></div>
     <div class="topo">
       <h3 style="margin:0 0 12px;font-size:14px">Topology · <span id="topo-mode">direct</span></h3>
@@ -647,7 +858,45 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   </div>
 </section>
 
-<section class="panel on" id="panel-callflow">
+<section class="panel" id="panel-simulation" data-twin="simulation">
+  <div class="sim-wrap">
+    <p class="sim-desc">A lightweight, large-scale 5G RU stress-test twin — 1 DU + 3 RU sites
+      (9 sector cells, 250 PRBs each) + a UE simulator that scales into the thousands as
+      asyncio tasks. No real PHY/ASN.1: built for capacity and admission-control testing,
+      not protocol-exact validation (that's what the 4G LTE twin is for).</p>
+    <div id="sim-content"><p class="sim-empty">Start the backend to see live metrics.</p></div>
+  </div>
+</section>
+
+<section class="panel" id="panel-lw5g-callflow" data-twin="lightweight5g">
+  <div class="lw5g-wrap">
+    <p class="lw5g-desc">A planned lightweight 5G twin: PHY-abstract UEs (no real radio stack) generating
+      real RRC/NAS signaling toward a 5G core, scaling far beyond what a real protocol stack can run on
+      one host. This is a dashboard preview built ahead of the backend — the controls below don't do
+      anything yet, but the layout is what they'll drive once it exists.</p>
+    <div class="lw5g-params-bar" id="lw5g-params-bar-callflow"></div>
+    <div class="lw5g-params-panel" id="lw5g-params-panel-callflow" style="display:none"></div>
+    <div class="lw5g-empty">
+      <b>Call-flow view — coming once the backend exists</b>
+      A live signaling ladder (RRC/NAS), similar to the 4G LTE twin's, will appear here once the
+      lightweight 5G twin's UE engine is built.
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="panel-lw5g-overview" data-twin="lightweight5g">
+  <div class="lw5g-wrap">
+    <div class="lw5g-params-bar" id="lw5g-params-bar-overview"></div>
+    <div class="lw5g-params-panel" id="lw5g-params-panel-overview" style="display:none"></div>
+    <h3 style="font-size:14px;margin:18px 0 10px;color:#58a6ff">Analytics (preview)</h3>
+    <div class="lw5g-analytics">
+      <div class="lw5g-chart-box"><b>Admission outcomes</b><p class="lw5g-chart-empty">No data yet — backend not built.</p></div>
+      <div class="lw5g-chart-box"><b>Signaling load over time</b><p class="lw5g-chart-empty">No data yet — backend not built.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="panel-callflow" data-twin="lte4g_full">
   <div class="cf-toolbar"><div class="legend" id="legend"></div></div>
   <div class="cf-wrap">
     <div class="diagram scroll-hide">
@@ -678,7 +927,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   </div>
 </section>
 
-<section class="panel" id="panel-messages">
+<section class="panel" id="panel-messages" data-twin="lte4g_full">
   <div class="msg-wrap">
     <div class="msg-list scroll-hide">
       <div class="msg-toolbar">
@@ -708,7 +957,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   </div>
 </section>
 
-<section class="panel" id="panel-rrc">
+<section class="panel" id="panel-rrc" data-twin="lte4g_full">
   <div class="rrc-wrap">
     <div class="rrc-list">
       <div class="rrc-toolbar">
@@ -735,7 +984,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   </div>
 </section>
 
-<section class="panel" id="panel-signaling">
+<section class="panel" id="panel-signaling" data-twin="lte4g_full">
   <div class="sig-wrap">
     <div class="sig-proto" id="sig-proto">
       <button type="button" class="on" data-p="RRC">RRC</button>
@@ -830,6 +1079,445 @@ document.querySelectorAll('.tab').forEach(btn=>{
   btn.onclick=()=>{
     activateTab(btn.dataset.tab);
   };
+});
+
+/* ===================  Twin manager  ===================
+   The dashboard process is always on; only one twin's *backend containers*
+   run at a time. Selecting a twin from the sidebar is the preferred path
+   (auto-starts it, auto-stops the other) — the Start/Stop button on each
+   twin's own panel does the same thing manually, for when you don't want
+   to navigate away, or just want to shut everything down. */
+const TWIN_TITLES = {
+  lte4g_full: 'Full-stack 4G LTE Digital Twin',
+  simulation: 'Simulation',
+  lightweight5g: 'Lightweight 5G Twin',
+};
+// Registered in the sidebar/tabs so its dashboard can be designed ahead of
+// time, but it has no compose stack yet — the backend doesn't know this key
+// at all. The control bar reflects that honestly (disabled, "not built
+// yet") instead of pretending a start/stop action would do anything.
+const NOT_BUILT_TWINS = new Set(['lightweight5g']);
+const TWIN_ACCENT_CLASS = {simulation: 'accent-sim', lightweight5g: 'accent-lw5g'};
+let activeTwin = 'lte4g_full';
+let twinSwitching = false;   // one shared header bar now, not per-twin busy state
+let twinStatusCache = {};
+
+function twinDotClass(status){
+  return (status && status.overall) || 'stopped';
+}
+
+function renderTwinCtrlBar(){
+  const statusEl = document.getElementById('twin-ctrl-status');
+  const btnEl = document.getElementById('twin-ctrl-btn');
+  if(!statusEl || !btnEl) return;
+  Object.values(TWIN_ACCENT_CLASS).forEach(c => btnEl.classList.remove(c));
+  if(TWIN_ACCENT_CLASS[activeTwin]) btnEl.classList.add(TWIN_ACCENT_CLASS[activeTwin]);
+
+  if(NOT_BUILT_TWINS.has(activeTwin)){
+    statusEl.innerHTML = '<span class="dot stopped"></span>Not built yet';
+    btnEl.textContent = 'Start backend';
+    btnEl.disabled = true;
+    btnEl.classList.remove('busy');
+    return;
+  }
+  btnEl.disabled = false;
+  const cls = twinSwitching ? 'busy' : twinDotClass(twinStatusCache[activeTwin]);
+  const label = twinSwitching ? 'Working…' : (cls === 'running' ? 'Backend running'
+    : cls === 'partial' ? 'Backend partially running' : 'Backend stopped');
+  statusEl.innerHTML = `<span class="dot ${cls}"></span>${label}`;
+  const action = (cls === 'running' || cls === 'partial') ? 'stop' : 'start';
+  btnEl.textContent = action === 'stop' ? 'Stop backend' : 'Start backend';
+  btnEl.dataset.action = action;
+  btnEl.classList.toggle('busy', twinSwitching);
+}
+
+function renderSidebarDots(){
+  for(const key of Object.keys(TWIN_TITLES)){
+    const dot = document.getElementById(`sidebar-dot-${key}`);
+    if(dot) dot.className = 'sidebar-item-dot ' + (NOT_BUILT_TWINS.has(key) ? 'stopped' : twinDotClass(twinStatusCache[key]));
+  }
+}
+
+function renderAllTwinUi(){
+  renderTwinCtrlBar();
+  renderSidebarDots();
+}
+
+async function pollTwinStatus(){
+  try{
+    const r = await fetch('/api/twins/status');
+    twinStatusCache = await r.json();
+  }catch(e){ /* keep last known status rather than blank it out */ }
+  renderAllTwinUi();
+}
+
+async function setTwinBackend(key, action){
+  if(NOT_BUILT_TWINS.has(key)){
+    alert(`${TWIN_TITLES[key] || key} doesn't have a backend yet — this is a dashboard preview only.`);
+    return;
+  }
+  if(twinSwitching) return;
+  twinSwitching = true;
+  renderAllTwinUi();
+  try{
+    const url = action === 'start' ? '/api/twins/activate' : '/api/twins/stop';
+    const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                                  body: JSON.stringify({twin: key})});
+    const d = await r.json();
+    if(d.twins) twinStatusCache = d.twins;
+    if(!d.ok){
+      alert(`Failed to ${action} ${TWIN_TITLES[key] || key}: ${d.error || 'unknown error'}`);
+    }
+  }catch(e){
+    alert(`Failed to ${action} ${TWIN_TITLES[key] || key}: ${e}`);
+  }finally{
+    twinSwitching = false;
+    renderAllTwinUi();
+    if(action === 'start' && key === 'simulation') pollSimulation();
+  }
+}
+
+document.getElementById('twin-ctrl-btn').onclick = () =>
+  setTwinBackend(activeTwin, document.getElementById('twin-ctrl-btn').dataset.action || 'stop');
+
+function showTwinView(key){
+  activeTwin = key;
+  document.querySelectorAll('.sidebar-item').forEach(b=>b.classList.toggle('on', b.dataset.twin === key));
+  document.getElementById('header-title').textContent = TWIN_TITLES[key] || key;
+  document.querySelectorAll('.tab').forEach(b=>{ b.style.display = b.dataset.twin === key ? '' : 'none'; });
+  const firstTab = document.querySelector(`.tab[data-twin="${key}"]`);
+  if(firstTab) activateTab(firstTab.dataset.tab);
+  renderTwinCtrlBar();
+  if(key === 'simulation') pollSimulation();
+}
+
+pollTwinStatus();
+setInterval(pollTwinStatus, 5000);
+
+/* sidebar: digital-twin dashboard picker */
+function toggleSidebar(force){
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  const open = force !== undefined ? force : !sb.classList.contains('open');
+  sb.classList.toggle('open', open);
+  ov.classList.toggle('open', open);
+}
+document.getElementById('sidebar-toggle').onclick = () => toggleSidebar();
+document.getElementById('sidebar-overlay').onclick = () => toggleSidebar(false);
+document.querySelectorAll('.sidebar-item').forEach(btn=>{
+  btn.onclick = () => {
+    const key = btn.dataset.twin;
+    showTwinView(key);
+    toggleSidebar(false);
+    // Preferred design: selecting a twin opens it, closes the other — but
+    // don't fire that (and its alert) for a twin with no backend yet; just
+    // show its dashboard preview.
+    if(!NOT_BUILT_TWINS.has(key)) setTwinBackend(key, 'start');
+  };
+});
+
+/* ===================  Simulation twin (poc_StressTest)  =================== */
+// Distinct color per cell name, stable across redraws (assigned in first-seen
+// order) — used by both the mobility map and its legend.
+const SIM_CELL_PALETTE = ['#3fb950','#58a6ff','#d29922','#a371f7','#f0883e','#22d3ee','#f85149','#7ee787','#79c0ff'];
+const simCellColors = new Map();
+function simCellColor(name){
+  if(!name) return '#5b6472';
+  if(!simCellColors.has(name)){
+    simCellColors.set(name, SIM_CELL_PALETTE[simCellColors.size % SIM_CELL_PALETTE.length]);
+  }
+  return simCellColors.get(name);
+}
+
+// Port of the original poc_StressTest dashboard's mobility map
+// (dashboard/static/index.html's drawGeoMap) — simplified: no trails, no
+// anomaly rings, no hover/click, just a clean snapshot of where every RU
+// site/sector and every UE actually is, redrawn each poll.
+function drawSimGeoMap(geo){
+  const canvas = document.getElementById('sim-geo-canvas');
+  if(!canvas) return;
+  if(!geo || !(geo.sites || geo.ues)){
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 360;
+  if(canvas.width !== Math.round(w*dpr) || canvas.height !== Math.round(h*dpr)){
+    canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const R = (geo.bounds && geo.bounds.max_radius_m) || 1100;
+  const pad = 30;
+  const scale = (Math.min(w, h) / 2 - pad) / (R * 1.05);
+  const cx = w / 2, cy = h / 2;
+  const toScreen = (x, y) => [cx + x * scale, cy - y * scale];
+
+  ctx.strokeStyle = '#1e2533';
+  ctx.lineWidth = 1;
+  for(const frac of [0.33, 0.66, 1.0]){
+    ctx.beginPath(); ctx.arc(cx, cy, R * scale * frac, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  const cov = (geo.bounds && geo.bounds.coverage_hint_m) || 1300;
+  const cellsBySite = {};
+  (geo.cells || []).forEach(c => { (cellsBySite[c.site] = cellsBySite[c.site] || []).push(c); });
+  (geo.sites || []).forEach(site => {
+    const [sx, sy] = toScreen(site.x, site.y);
+    const covR = Math.max(60, cov * scale * 0.85);
+    (cellsBySite[site.name] || []).forEach((cell, i) => {
+      const az = cell.azimuth_deg != null ? cell.azimuth_deg : i * 120;
+      const span = cell.sector_width_deg || 120;
+      const col = simCellColor(cell.name);
+      const start = ((az - span / 2) - 90) * Math.PI / 180;
+      const end = ((az + span / 2) - 90) * Math.PI / 180;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.arc(sx, sy, covR, start, end); ctx.closePath();
+      ctx.fillStyle = col + '22'; ctx.fill();
+      ctx.strokeStyle = col + '77'; ctx.lineWidth = 1; ctx.stroke();
+    });
+    ctx.fillStyle = '#e8eaed';
+    ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '700 11px Segoe UI, system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(site.name || 'site', sx, sy - 12);
+  });
+
+  (geo.ues || []).forEach(u => {
+    const [ux, uy] = toScreen(u.x, u.y);
+    const col = simCellColor(u.cell);
+    if(u.state === 'attaching'){
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ux, uy, 3.5, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.fillStyle = u.state === 'connected' ? col : '#5b6472';
+      ctx.beginPath(); ctx.arc(ux, uy, u.state === 'connected' ? 2.6 : 2, 0, Math.PI * 2); ctx.fill();
+    }
+  });
+}
+
+function _simCanvasCtx(id){
+  const canvas = document.getElementById(id);
+  if(!canvas) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 200, h = canvas.clientHeight || 130;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return {ctx, w, h};
+}
+
+function drawSimPrbDonut(cells){
+  const c = _simCanvasCtx('sim-prb-donut');
+  if(!c) return;
+  const {ctx, w, h} = c;
+  const totalUsed = (cells || []).reduce((s, c2) => s + (c2.used_prbs || 0), 0);
+  const totalFree = (cells || []).reduce((s, c2) => s + (c2.free_prbs || 0), 0);
+  const total = totalUsed + totalFree;
+  const cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 6, rInner = r * 0.6;
+  if(total <= 0){
+    ctx.fillStyle = '#5b6472'; ctx.font = '11px Segoe UI,system-ui,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('no data', cx, cy);
+    return;
+  }
+  const usedFrac = totalUsed / total;
+  let start = -Math.PI / 2;
+  [[usedFrac, '#3fb950'], [1 - usedFrac, '#30363d']].forEach(([frac, col]) => {
+    const end = start + frac * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, start, end); ctx.closePath();
+    ctx.fillStyle = col; ctx.fill();
+    start = end;
+  });
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath(); ctx.arc(cx, cy, rInner, 0, Math.PI * 2); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#c9d1d9'; ctx.font = '700 15px Segoe UI,system-ui,sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(usedFrac * 100) + '%', cx, cy - 4);
+  ctx.font = '10px Segoe UI,system-ui,sans-serif'; ctx.fillStyle = '#8b949e';
+  ctx.fillText('used', cx, cy + 12);
+}
+
+function drawSimOutcomeBar(ue){
+  const c = _simCanvasCtx('sim-outcome-bar');
+  if(!c) return;
+  const {ctx, w, h} = c;
+  const rows = [
+    ['Admitted', ue.admitted || 0, '#3fb950'],
+    ['Rejected', ue.rejected || 0, '#f85149'],
+    ['Released', ue.released || 0, '#8b949e'],
+    ['Handovers', ue.handovers || 0, '#58a6ff'],
+  ];
+  const max = Math.max(...rows.map(r => r[1]), 1);
+  const padL = 66, padR = 8, padTop = 4, gap = 7;
+  const barH = (h - padTop * 2 - gap * (rows.length - 1)) / rows.length;
+  rows.forEach(([label, val, col], i) => {
+    const y = padTop + i * (barH + gap);
+    ctx.fillStyle = '#30363d';
+    ctx.fillRect(padL, y, w - padL - padR, barH);
+    ctx.fillStyle = col;
+    ctx.fillRect(padL, y, (w - padL - padR) * (val / max), barH);
+    ctx.fillStyle = '#9aa3ad'; ctx.font = '10px Segoe UI,system-ui,sans-serif';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, padL - 8, y + barH / 2);
+    ctx.fillStyle = '#e8eaed'; ctx.textAlign = 'left';
+    ctx.fillText(String(val), padL + 6, y + barH / 2);
+  });
+}
+
+function renderSimulation(metrics){
+  const box = document.getElementById('sim-content');
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if(!metrics || metrics.ok === false || metrics.error){
+    box.innerHTML = `<p class="sim-empty">${esc((metrics && metrics.error) || 'No data yet — start the backend.')}</p>`;
+    return;
+  }
+  const du = metrics.du || {cells: []};
+  const ue = metrics.ue || {};
+  const geo = metrics.geo_fresh ? metrics.geo : null;
+  const cells = du.cells || [];
+  const configured = ue.num_ues_configured || 0;
+  const running = ue.num_ues_running || 0;
+  const maxUes = Math.max(ue.num_ues_max || 5000, configured, 100);
+
+  let html = `<div class="sim-ue-row">
+      <b>UE count: ${configured}${running !== configured ? ` (${running} running)` : ''}</b>
+      <input type="range" id="sim-ue-slider" min="0" max="${maxUes}" value="${configured}">
+      <span class="sim-ue-val" id="sim-ue-val">${configured}</span>
+    </div>`;
+
+  const stat = (l, v) => `<div class="stat"><div class="v">${v ?? '—'}</div><div class="l">${esc(l)}</div></div>`;
+  html += '<div class="sim-stats">'
+    + stat('Active', ue.active) + stat('Admitted', ue.admitted) + stat('Rejected', ue.rejected)
+    + stat('Released', ue.released) + stat('Handovers', ue.handovers) + stat('HO fail', ue.ho_fail)
+    + '</div>';
+
+  // Mobility map (left half) — RU sites with their sector fans, every UE
+  // positioned and colored by serving cell, ported from the original
+  // poc_StressTest dashboard's main page — plus analytics charts (right
+  // half) so the box isn't mostly empty space either side of the map.
+  const cellNames = [...new Set((geo && geo.cells ? geo.cells : cells.map(c=>({name:c.cell_id}))).map(c=>c.name))];
+  const legend = cellNames.map(n=>`<span class="sim-geo-legend-item">`
+    + `<i style="background:${simCellColor(n)}"></i>${esc(n)}</span>`).join('');
+  html += `<div class="sim-geo-box">
+      <div class="sim-geo-hdr"><b>Mobility map &amp; analytics</b>`
+      + (geo ? `<span class="sim-geo-count">${(geo.ues||[]).length} UEs shown</span>` : '<span class="sim-geo-count">waiting for geo data…</span>')
+      + `</div>
+      <div class="sim-geo-cols">
+        <div class="sim-geo-left">
+          <canvas id="sim-geo-canvas"></canvas>
+          <div class="sim-geo-legend">${legend}</div>
+        </div>
+        <div class="sim-geo-right">
+          <div class="sim-chart-box"><b>PRB usage (all 9 cells)</b><canvas id="sim-prb-donut"></canvas></div>
+          <div class="sim-chart-box"><b>Session outcomes</b><canvas id="sim-outcome-bar"></canvas></div>
+        </div>
+      </div>
+    </div>`;
+
+  const bySite = {};
+  for(const c of cells){
+    const site = (c.cell_id || '?').split('-')[0];
+    (bySite[site] = bySite[site] || []).push(c);
+  }
+  const siteKeys = Object.keys(bySite).sort();
+  html += '<div class="sim-sites">' + siteKeys.map(site=>{
+    const rows = bySite[site].sort((a,b)=>a.cell_id.localeCompare(b.cell_id)).map(c=>{
+      const pct = Math.round((c.utilization || 0) * 100);
+      const color = pct >= 90 ? '#f85149' : pct >= 70 ? '#d29922' : '#3fb950';
+      return `<div class="sim-cell-row"><span class="cid">${esc(c.cell_id)}</span>`
+        + `<span class="bar"><i style="width:${pct}%;background:${color}"></i></span>`
+        + `<span class="pct">${pct}%</span></div>`;
+    }).join('');
+    return `<div class="sim-site"><h4>${esc(site)}</h4>${rows}</div>`;
+  }).join('') + '</div>';
+
+  box.innerHTML = html;
+  drawSimGeoMap(geo);
+  drawSimPrbDonut(cells);
+  drawSimOutcomeBar(ue);
+  const slider = document.getElementById('sim-ue-slider');
+  const val = document.getElementById('sim-ue-val');
+  slider.oninput = () => { val.textContent = slider.value; };
+  slider.onchange = () => {
+    fetch('/api/sim/ues', {method:'POST', headers:{'Content-Type':'application/json'},
+                            body: JSON.stringify({num_ues: +slider.value})})
+      .catch(e=>console.error('sim UE scale failed', e));
+  };
+}
+
+async function pollSimulation(){
+  if(activeTwin !== 'simulation') return;
+  try{
+    const r = await fetch('/api/sim/metrics');
+    renderSimulation(await r.json());
+  }catch(e){
+    renderSimulation(null);
+  }
+}
+setInterval(pollSimulation, 4000);
+
+/* ===================  Lightweight 5G twin (preview, no backend yet)  ===================
+   Dashboard built ahead of the implementation — both controls here are
+   real/interactive (so the page doesn't feel broken) but don't call any
+   API, since there's nothing behind them yet. State is just kept in JS and
+   mirrored across both tabs that show it (Call Flow / Overview). */
+let lw5gUeCount = 50;
+let lw5gPattern = 'bursty';
+const LW5G_PATTERNS = [
+  {key:'bursty', label:'Bursty',
+   desc:'UEs arrive in short, dense bursts separated by quiet periods — models a flash-crowd or paging-storm style surge.'},
+  {key:'step-increase', label:'Step increase',
+   desc:'UE count rises in discrete steps and holds at each plateau — models a gradual, deliberate ramp-up in load.'},
+  {key:'random', label:'Random',
+   desc:'UEs arrive at uniformly random times — models steady, uncorrelated background load.'},
+];
+
+function renderLw5gParamsBar(suffix){
+  const bar = document.getElementById(`lw5g-params-bar-${suffix}`);
+  const panel = document.getElementById(`lw5g-params-panel-${suffix}`);
+  if(!bar || !panel) return;
+  const panelOpen = panel.style.display !== 'none';
+  bar.innerHTML = `<b>UE count: ${lw5gUeCount}</b>
+    <input type="range" min="0" max="2000" value="${lw5gUeCount}" id="lw5g-ue-slider-${suffix}">
+    <span class="lw5g-ue-val" id="lw5g-ue-val-${suffix}">${lw5gUeCount}</span>
+    <button type="button" class="lw5g-params-toggle" id="lw5g-params-toggle-${suffix}">Parameters ${panelOpen ? '▲' : '▾'}</button>`;
+  const slider = document.getElementById(`lw5g-ue-slider-${suffix}`);
+  const val = document.getElementById(`lw5g-ue-val-${suffix}`);
+  slider.oninput = () => { val.textContent = slider.value; };
+  slider.onchange = () => {
+    lw5gUeCount = +slider.value;
+    ['callflow', 'overview'].forEach(renderLw5gParamsBar);   // keep both tabs in sync
+  };
+  document.getElementById(`lw5g-params-toggle-${suffix}`).onclick = () => {
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    renderLw5gParamsBar(suffix);
+  };
+}
+
+function renderLw5gParamsPanel(suffix){
+  const panel = document.getElementById(`lw5g-params-panel-${suffix}`);
+  if(!panel) return;
+  const current = LW5G_PATTERNS.find(p => p.key === lw5gPattern);
+  panel.innerHTML = `<b>Activation pattern</b>
+    <div class="lw5g-pattern-row">${LW5G_PATTERNS.map(p =>
+      `<button type="button" class="lw5g-pattern-btn${p.key === lw5gPattern ? ' on' : ''}" data-pattern="${p.key}">${p.label}</button>`
+    ).join('')}</div>
+    <p class="lw5g-pattern-desc">${current ? current.desc : ''}</p>`;
+  panel.querySelectorAll('.lw5g-pattern-btn').forEach(btn => {
+    btn.onclick = () => {
+      lw5gPattern = btn.dataset.pattern;
+      ['callflow', 'overview'].forEach(renderLw5gParamsPanel);
+    };
+  });
+}
+
+['callflow', 'overview'].forEach(suffix => {
+  renderLw5gParamsBar(suffix);
+  renderLw5gParamsPanel(suffix);
 });
 
 /* overview cards */
@@ -1426,6 +2114,16 @@ loadSigSources();
 
 /* =====================  4G LTE panels  ===================== */
 let DATA4G_MULTI = __4G_DATA_MULTI__;
+// trace_recs/per_templates/per_record_status are identical across every
+// pair (same 22_decoded trace_dir) — kept here ONCE instead of embedded in
+// each pair's own object, which used to triple ~7.7MB of JSON. aligned[]
+// entries reference a record by `trace_idx` into DATA4G_SHARED.trace_recs
+// rather than embedding a full copy — see resolveTrace() below.
+let DATA4G_SHARED = __4G_DATA_SHARED__;
+function resolveTrace(traceIdx){
+  if(traceIdx === null || traceIdx === undefined) return null;
+  return (DATA4G_SHARED.trace_recs || [])[traceIdx] || null;
+}
 let ltePairSel = Object.keys(DATA4G_MULTI)[0] || '1';
 let DATA4G = DATA4G_MULTI[ltePairSel];
 // Real docker-ps-derived running/stopped state, not log-derived — instant,
@@ -1508,8 +2206,8 @@ function renderLteInjectBar(){
 // Build the SVG arrow ladder for the 4G signal flow
 function buildLteLadderSvg(evs){
   const alignedByEv = new Map((DATA4G.aligned || [])
-    .filter(a => a.trace && a.ev_idx !== undefined)
-    .map(a => [a.ev_idx, a.trace]));
+    .filter(a => a.trace_idx != null && a.ev_idx !== undefined)
+    .map(a => [a.ev_idx, resolveTrace(a.trace_idx)]));
   const LANE_N   = 4;
   const ROW_H    = 42;   // px per event row
   const PAD_TOP  = 8;
@@ -1678,7 +2376,7 @@ function lteInfoHtml(info, concise){
 function renderLteDetailBody(ev, aligned){
   const body = document.getElementById('lte-detail-body');
   const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const trace = aligned && aligned.trace;
+  const trace = aligned && resolveTrace(aligned.trace_idx);
   const decodedMsg = trace && trace.decoded
     ? (trace.decoded.message !== undefined ? trace.decoded.message : trace.decoded)
     : null;
@@ -1739,7 +2437,7 @@ function renderLteEvList(){
   const ROW_H = 42, PAD_TOP = 8;
   const rowDivs = evs.map((ev,i)=>{
     const top = PAD_TOP + i * ROW_H;
-    const traceRec = (DATA4G.aligned||[]).find(a=>a.ev_idx===i && a.trace);
+    const traceRec = (DATA4G.aligned||[]).find(a=>a.ev_idx===i && a.trace_idx != null);
     const cls = 'lte-sv-row' + (traceRec ? ' trace-backed' : '') + (i===lteSelIdx?' sel':'');
     const title = traceRec ? ev.label + ' (22_decoded trace available)' : ev.label;
     return `<div class="${cls}" data-i="${i}"
@@ -1765,7 +2463,7 @@ function renderLteEvList(){
       const ev = evs[lteSelIdx];
       const aligned = (DATA4G.aligned||[]).find(a=>a.ev_idx===lteSelIdx);
       document.getElementById('lte-detail-title').textContent =
-        '[' + ev.layer + '] ' + ev.label + (aligned && aligned.trace ? '  [22_decoded]' : '');
+        '[' + ev.layer + '] ' + ev.label + (aligned && aligned.trace_idx != null ? '  [22_decoded]' : '');
       renderLteDetailBody(ev, aligned);
     });
   });
@@ -1773,8 +2471,8 @@ function renderLteEvList(){
 
 function renderLtetraceTable(){
   const tbody = document.getElementById('ltetrace-tbody');
-  const recs  = DATA4G.trace_recs || [];
-  const tmpl  = DATA4G.per_templates || {};
+  const recs  = DATA4G_SHARED.trace_recs || [];
+  const tmpl  = DATA4G_SHARED.per_templates || {};
   document.getElementById('ltetrace-count').textContent =
     recs.length + ' trace records · '
     + Object.keys(tmpl).length + ' PER templates';
@@ -1853,14 +2551,16 @@ function renderLteKpi(){
     + rows;
 }
 
+let ltePairBusy = new Set();   // pair keys with a start/stop request in flight
+
 function renderLtePairBar(){
   const bar = document.getElementById('lte-pair-bar');
   bar.style.display = 'flex';
   const keys = Object.keys(DATA4G_MULTI);
   const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  let buttons = '';
+  let chips = '';
   if(keys.length > 1){
-    buttons = keys.map(k=>{
+    chips = keys.map(k=>{
       const d = DATA4G_MULTI[k];
       const outcome = (d && d.kpis && d.kpis.outcome) || 'none';
       const on = k===ltePairSel ? ' on' : '';
@@ -1869,21 +2569,33 @@ function renderLtePairBar(){
       const stoppedTag = ueUp ? '' : ' (stopped)';
       const title = `UE container: ${cs.ue || 'unknown'} · eNB container: ${cs.enb || 'unknown'}`
         + (d && d.has_live ? ` · last known outcome: ${outcome}` : ' · no live logs for this pair');
-      return `<button type="button" class="lte-pair-btn${on}${ueUp ? '' : ' down'}" data-pair="${esc(k)}" title="${esc(title)}">`
+      const busy = ltePairBusy.has(k);
+      const action = ueUp ? 'stop' : 'start';
+      const powerTitle = busy ? 'Working…' : (ueUp ? `Stop UE ${k} (and its eNB)` : `Start UE ${k} (and its eNB)`);
+      const selectBtn = `<button type="button" class="lte-pair-btn${on}${ueUp ? '' : ' down'}" data-pair="${esc(k)}" title="${esc(title)}">`
         + `<span class="dot ${esc(outcome)}"></span>UE ${esc(k)}${stoppedTag}</button>`;
+      const powerBtn = `<button type="button" class="lte-pair-power${busy ? ' busy' : ''}" data-pair="${esc(k)}" `
+        + `data-action="${action}" title="${esc(powerTitle)}">${busy ? '…' : '⏻'}</button>`;
+      return `<span class="lte-pair-chip">${selectBtn}${powerBtn}</span>`;
     }).join('');
   }
   const pinTitle = ltePinned
     ? 'Pinned — the ladder/detail/KPI panel is frozen on this flow. Click to resume live updates.'
     : 'Freeze the ladder/detail/KPI panel on the current flow. The histogram below keeps updating regardless.';
-  bar.innerHTML = '<b>Viewing</b>' + buttons
+  const paramsOpen = document.getElementById('lte-params-panel').style.display !== 'none';
+  bar.innerHTML = '<b>Viewing</b>' + chips
     + '<span style="flex:1"></span>'
+    + `<button type="button" class="lte-params-toggle" id="lte-params-toggle">Parameters ${paramsOpen ? '▲' : '▾'}</button>`
     + `<button type="button" class="lte-pin-btn${ltePinned ? ' on' : ''}" id="lte-pin-btn" title="${esc(pinTitle)}">`
     + (ltePinned ? '📌 Pinned' : '📌 Pin') + '</button>';
   bar.querySelectorAll('.lte-pair-btn').forEach(btn=>{
     btn.onclick = () => selectLtePair(btn.dataset.pair);
   });
+  bar.querySelectorAll('.lte-pair-power').forEach(btn=>{
+    btn.onclick = () => togglePairPower(btn.dataset.pair, btn.dataset.action);
+  });
   document.getElementById('lte-pin-btn').onclick = toggleLtePin;
+  document.getElementById('lte-params-toggle').onclick = toggleLteParams;
 }
 
 function selectLtePair(key){
@@ -1897,6 +2609,31 @@ function selectLtePair(key){
 function toggleLtePin(){
   ltePinned = !ltePinned;
   renderLtePairBar();
+}
+
+function toggleLteParams(){
+  const panel = document.getElementById('lte-params-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  renderLtePairBar();
+}
+
+async function togglePairPower(key, action){
+  if(ltePairBusy.has(key)) return;
+  ltePairBusy.add(key);
+  renderLtePairBar();
+  try{
+    const r = await fetch(`/api/4g/pair/${encodeURIComponent(key)}/power`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action})
+    });
+    const d = await r.json();
+    if(d && d.container_status_4g) CONTAINER_STATUS_4G = d.container_status_4g;
+  }catch(e){
+    console.error('pair power toggle failed', e);
+  }finally{
+    ltePairBusy.delete(key);
+    renderLtePairBar();
+  }
 }
 
 const LTE_HIST_METRICS = {
@@ -2033,7 +2770,59 @@ function initLte4g(){
   lteLastRenderTs = Date.now();
 }
 
+/* Overview tab: animated 4G stack topology, click a node for its definition */
+const LTE4G_TOPO_NODES = [
+  {key:'ue',  label:'UE',  sub:'srsue4g',  icon:'__ICON_UE__',
+   def:'The User Equipment — real srsRAN_4G <code>srsue</code> software simulating a phone. '
+     + 'It runs the actual LTE UE protocol stack (PHY, MAC, RLC, PDCP, RRC, NAS) and produces '
+     + 'byte-correct ASN.1 signaling, the same as a real device would.'},
+  {key:'iq',  label:'ZMQ IQ', sub:'radio link', icon:'__ICON_IQ__',
+   def:'A ZeroMQ socket pair standing in for the radio link. Instead of real RF hardware, '
+     + '<code>srsue</code> and <code>srsenb</code> exchange raw IQ samples over ZeroMQ in lockstep '
+     + '— one request/reply round trip per radio subframe — so every PRACH preamble and RRC '
+     + 'message crossing this link is exactly what it would be over real air.'},
+  {key:'enb', label:'eNB',  sub:'srsenb',  icon:'__ICON_ENB__',
+   def:'The evolved Node B — the LTE base station, real srsRAN_4G <code>srsenb</code> software '
+     + '(PHY, MAC scheduling, RLC, PDCP, RRC). It replies to a UE\'s PRACH attempt with a Random '
+     + 'Access Response and terminates RRC signaling.'},
+  {key:'epc', label:'EPC',  sub:'srsepc',  icon:'__ICON_EPC__',
+   def:'The Evolved Packet Core — real srsRAN_4G <code>srsepc</code> software combining the MME '
+     + '(mobility/signaling), HSS (subscriber database), and S/P-GW (data-plane gateway). It '
+     + 'authenticates the UE, manages its security context, and sets up its data bearer.'},
+];
+let lte4gTopoSel = null;
+
+function renderLte4gTopo(){
+  const box = document.getElementById('lte4g-topo');
+  const nodes = LTE4G_TOPO_NODES.map((n,i)=>{
+    const link = i < LTE4G_TOPO_NODES.length - 1
+      ? `<div class="lte4g-topo-link"><span class="lte4g-topo-pulse" style="animation-delay:${i*0.55}s"></span></div>`
+      : '';
+    return `<button type="button" class="lte4g-topo-node${n.key===lte4gTopoSel?' sel':''}" data-node="${n.key}">`
+      + `<span class="lte4g-topo-icon">${n.icon}</span><b>${n.label}</b><small>${n.sub}</small></button>${link}`;
+  }).join('');
+  box.innerHTML = `<div class="lte4g-topo-row">${nodes}</div>`;
+  box.querySelectorAll('.lte4g-topo-node').forEach(btn=>{
+    btn.onclick = () => selectLte4gTopoNode(btn.dataset.node);
+  });
+  renderLte4gTopoDef();
+}
+
+function selectLte4gTopoNode(key){
+  lte4gTopoSel = (lte4gTopoSel === key) ? null : key;
+  renderLte4gTopo();
+}
+
+function renderLte4gTopoDef(){
+  const def = document.getElementById('lte4g-topo-def');
+  const n = LTE4G_TOPO_NODES.find(x=>x.key===lte4gTopoSel);
+  if(!n){ def.style.display = 'none'; return; }
+  def.style.display = 'block';
+  def.innerHTML = `<b>${n.label} — ${n.sub}</b>${n.def}`;
+}
+
 initLte4g();
+renderLte4gTopo();
 if((DATA4G.events || []).length){
   activateTab('lte4g');
 }

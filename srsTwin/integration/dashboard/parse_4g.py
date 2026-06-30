@@ -633,11 +633,18 @@ def align_trace_to_events(
 ) -> list[dict]:
     """Create a side-by-side list matching live events with 22_decoded records.
 
-    Returns list of {live: event|None, trace: record|None, label: str}.
+    Returns list of {live: event|None, trace_idx: int|None, label: str}.
+    `trace_idx` is the record's position in `trace_recs`, not an inline copy
+    of the record itself — `trace_recs` is identical across every 4G pair
+    (same trace_dir), and embedding the full matched/unmatched records here
+    used to duplicate nearly all of trace_recs a second time *per pair*
+    (confirmed: this field alone was ~3.9MB, tripled, the single largest
+    contributor to the dashboard HTML bloating to ~24MB). The frontend
+    resolves `trace_idx` against one shared trace_recs array instead.
     """
-    # Build lookup by decoded message choice
-    trace_by_name: dict[str, list[dict]] = {}
-    for r in trace_recs:
+    # Build lookup by decoded message choice, keyed to each record's index
+    trace_by_name: dict[str, list[int]] = {}
+    for idx, r in enumerate(trace_recs):
         dmeta = r.get("decoding_metadata") or {}
         choice = dmeta.get("decoded_message_choice") or r.get("message_name") or ""
         # Normalise c1 wrapper
@@ -647,37 +654,36 @@ def align_trace_to_events(
             if isinstance(inner, list) and len(inner) >= 1:
                 choice = inner[0]
         if choice:
-            trace_by_name.setdefault(choice.lower(), []).append(r)
+            trace_by_name.setdefault(choice.lower(), []).append(idx)
 
     result: list[dict] = []
     used_trace: set[int] = set()
 
     for ev_idx, ev in enumerate(events):
         if ev.get("layer") not in ("RRC", "S1AP"):
-            result.append({"ev_idx": ev_idx, "live": ev, "trace": None, "label": ev["label"]})
+            result.append({"ev_idx": ev_idx, "live": ev, "trace_idx": None, "label": ev["label"]})
             continue
         # Match by label
         label_norm = (ev["label"].lower()
                       .replace("rrc connection ", "rrcconnection")
                       .replace(" ", ""))
-        matched_trace = None
-        for t_name, t_recs in trace_by_name.items():
+        matched_idx = None
+        for t_name, t_idxs in trace_by_name.items():
             if t_name.replace("-", "").lower() in label_norm:
-                for tr in t_recs:
-                    rid = id(tr)
-                    if rid not in used_trace:
-                        matched_trace = tr
-                        used_trace.add(rid)
+                for ti in t_idxs:
+                    if ti not in used_trace:
+                        matched_idx = ti
+                        used_trace.add(ti)
                         break
-                if matched_trace:
+                if matched_idx is not None:
                     break
-        result.append({"ev_idx": ev_idx, "live": ev, "trace": matched_trace, "label": ev["label"]})
+        result.append({"ev_idx": ev_idx, "live": ev, "trace_idx": matched_idx, "label": ev["label"]})
 
-    # Append unmatched trace records
-    for r in trace_recs:
-        if id(r) not in used_trace:
+    # Append unmatched trace records (by index, not by value)
+    for idx, r in enumerate(trace_recs):
+        if idx not in used_trace:
             choice = (r.get("decoding_metadata") or {}).get("decoded_message_choice") or ""
-            result.append({"live": None, "trace": r,
+            result.append({"live": None, "trace_idx": idx,
                            "label": PRETTY_4G.get(choice, choice or r.get("message_name", "?"))})
 
     return result
