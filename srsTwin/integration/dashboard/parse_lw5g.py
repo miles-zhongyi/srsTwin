@@ -75,28 +75,42 @@ def _parse_ts(ts_str: str) -> float:
 _GREP_PAT = r"\[DU[[:space:]]*\].*TEST_MODE|\[NGAP[[:space:]]*\]"
 
 
+# Tail this many raw lines before grepping.  At ~150k PHY/MAC lines/min this
+# covers ~80 s of log — enough for 8+ cycles — while keeping grep fast because
+# `tail` seeks from the file end instead of scanning from the beginning.
+_TAIL_LINES = 200_000
+
+
 def _grep_log(path: str, n: int) -> list[str]:
-    """Grep src file for TEST_MODE/NGAP lines, keep last n."""
+    """Grep the tail of a local log file for TEST_MODE/NGAP lines, keep last n."""
     if not os.path.isfile(path):
         return []
     try:
-        result = subprocess.run(
-            ["grep", "-E", _GREP_PAT, path],
-            capture_output=True, text=True, timeout=30,
-        )
-        lines = result.stdout.splitlines(keepends=True)
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            # Read the last ~30 MB to avoid loading multi-GB files
+            chunk = min(size, 30 * 1024 * 1024)
+            f.seek(size - chunk)
+            raw = f.read().decode("utf-8", errors="replace")
+        pat = re.compile(_GREP_PAT)
+        lines = [l + "\n" for l in raw.splitlines() if pat.search(l)]
         return lines[-n:]
     except Exception:
         return []
 
 
 def _docker_grep(container: str, src_path: str, n: int) -> list[str]:
-    """Grep src_path inside a running container, keep last n matching lines."""
+    """Grep the tail of src_path inside a running container, keep last n matching lines.
+
+    Uses ``tail | grep`` instead of ``grep`` on the full file so the command
+    completes in <1 s even after hours of log accumulation.
+    """
     try:
         result = subprocess.run(
             ["docker", "exec", container, "sh", "-c",
-             f"grep -E '{_GREP_PAT}' {src_path} | tail -n {n}"],
-            capture_output=True, text=True, timeout=30,
+             f"tail -n {_TAIL_LINES} {src_path} | grep -E '{_GREP_PAT}' | tail -n {n}"],
+            capture_output=True, text=True, timeout=15,
         )
         return result.stdout.splitlines(keepends=True)
     except Exception:
