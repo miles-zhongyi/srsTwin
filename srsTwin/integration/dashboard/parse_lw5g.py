@@ -251,7 +251,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": "Guard elapsed · new cycle",
-                            "phase": "setup"})
+                            "phase": "cycle"})
             continue
 
     # ---- Build KPIs ----
@@ -280,19 +280,21 @@ def build_lw5g(log_path: Optional[str] = None,
         "elapsed_min": round(elapsed_min, 2),
     }
 
-    # Keep last 5 full cycles worth of events (~50 lines) + setup events
-    KEEP_CYCLES = 5
-    keep_n = max(1, total_cycles_completed)
+    # Keep last 3 complete cycles + the one-time startup events.
+    # Use label matching (not phase) so that recurring "Guard elapsed · new cycle"
+    # events (phase="cycle") are subject to the cutoff, while the genuine
+    # one-shot NG Setup / F1 Setup lines are always kept at the top.
+    KEEP_CYCLES = 3
+    _STARTUP_LABELS = {"NG Setup Request → AMF", "NG Setup OK ← AMF", "F1 Setup (test mode)"}
+    startup_evs = [e for e in events if e["label"] in _STARTUP_LABELS]
     cutoff_ts = None
-    # Find the start of the N-th most recent cycle
     if len(cycles) >= KEEP_CYCLES:
         cutoff_ts = cycles[-KEEP_CYCLES]["start_ts"]
-    setup_evs = [e for e in events if e["phase"] == "setup"]
     if cutoff_ts:
-        recent_evs = [e for e in events if e["ts"] >= cutoff_ts and e["phase"] != "setup"]
+        recent_evs = [e for e in events if e["ts"] >= cutoff_ts and e["label"] not in _STARTUP_LABELS]
     else:
-        recent_evs = [e for e in events if e["phase"] != "setup"]
-    trimmed = sorted(setup_evs + recent_evs, key=lambda e: e["ts"])
+        recent_evs = [e for e in events if e["label"] not in _STARTUP_LABELS]
+    trimmed = sorted(startup_evs + recent_evs, key=lambda e: e["ts"])
 
     return {
         "events": trimmed,

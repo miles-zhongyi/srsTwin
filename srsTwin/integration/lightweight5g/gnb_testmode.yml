@@ -58,7 +58,7 @@ cell_cfg:
 test_mode:
   test_ue:
     rnti: 0x4444
-    nof_ues: 4
+    nof_ues: 3
     ue_creation_stagger_slots: 10
     pdsch_active: true
     pusch_active: true

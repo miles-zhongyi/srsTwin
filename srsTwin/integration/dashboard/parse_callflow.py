@@ -904,7 +904,7 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
     <div id="lw5g-kpi-cards" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
     <div class="lw5g-analytics">
       <div class="lw5g-chart-box" style="min-height:180px">
-        <b>Attach latency (ms)</b>
+        <b>RRC cycles per RNTI</b>
         <canvas id="lw5g-lat-canvas" height="140"></canvas>
         <p class="lw5g-chart-empty" id="lw5g-lat-empty">No data yet.</p>
       </div>
