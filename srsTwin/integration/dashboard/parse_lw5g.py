@@ -164,7 +164,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": "NG Setup Request → AMF",
-                            "phase": "setup"})
+                            "phase": "setup", "raw_line": line})
             continue
 
         m = _NG_SETUP_RSP.match(line)
@@ -175,7 +175,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": "NG Setup OK ← AMF",
-                            "phase": "setup"})
+                            "phase": "setup", "raw_line": line})
             continue
 
         # ---- F1 Setup (once) ----
@@ -186,7 +186,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": "F1 Setup (test mode)",
-                            "phase": "setup"})
+                            "phase": "setup", "raw_line": line})
             continue
 
         # ---- Per-UE rrcSetup injection ----
@@ -205,7 +205,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": rnti, "src": "gNB", "dst": "UE",
                             "label": f"RRC Setup [{rnti}]",
-                            "phase": "attach"})
+                            "phase": "attach", "raw_line": line})
             continue
 
         # ---- All UEs established ----
@@ -225,7 +225,7 @@ def build_lw5g(log_path: Optional[str] = None,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": f"All {nof_ues} UE(s) established · run {run_ms} ms"
                                      + (f" · setup {setup_lat_ms:.0f} ms" if setup_lat_ms else ""),
-                            "phase": "nas"})
+                            "phase": "nas", "raw_line": line})
             cycle_rnti_seen = set()
             continue
 
@@ -238,7 +238,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": f"Releasing {nof} UE(s)",
-                            "phase": "release"})
+                            "phase": "release", "raw_line": line})
             continue
 
         # ---- All released ----
@@ -250,7 +250,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": "All UEs released · guard period",
-                            "phase": "release"})
+                            "phase": "release", "raw_line": line})
             continue
 
         # ---- Guard elapsed → new cycle ----
@@ -265,7 +265,7 @@ def build_lw5g(log_path: Optional[str] = None,
             events.append({"ts": ts, "ts_str": ts_str,
                             "rnti": None, "src": "gNB", "dst": "gNB",
                             "label": "Guard elapsed · new cycle",
-                            "phase": "cycle"})
+                            "phase": "cycle", "raw_line": line})
             continue
 
     # ---- Build KPIs ----

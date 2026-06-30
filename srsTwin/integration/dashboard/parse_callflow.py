@@ -649,6 +649,18 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lw5g-lanehdr.amf{color:#3fb950}
 .lw5g-laneicon{display:inline-flex;vertical-align:-2px;margin-right:5px;color:#58a6ff;opacity:.85}
 .lw5g-laneicon.amf{color:#3fb950}
+/* Call-flow split layout */
+.lw5g-cf-main{display:flex;flex-direction:column;height:100%;padding:10px 14px;overflow:hidden}
+.lw5g-cf-split{display:flex;flex:1;overflow:hidden;margin-top:4px;border:1px solid var(--line);border-radius:6px;min-height:0}
+.lw5g-ldr-col{display:flex;flex-direction:column;width:50%;min-width:0;border-right:1px solid var(--line);overflow:hidden}
+.lw5g-dtl-col{width:50%;min-width:0;overflow:auto;padding:12px 14px;background:var(--panel2);font-family:monospace;font-size:11px}
+.lw5g-dtl-ph{color:#8b949e;text-align:center;padding-top:60px;font-size:12px;line-height:1.8}
+.lw5g-dtl-hdr{border-bottom:1px solid #21262d;padding-bottom:8px;margin-bottom:10px;font-size:11px;font-weight:700;word-break:break-word}
+.lw5g-dtl-tbl{border-collapse:collapse;width:100%;font-size:10px;margin-bottom:12px}
+.lw5g-dtl-tbl td{padding:3px 10px 3px 0;vertical-align:top}
+.lw5g-dtl-tbl td:first-child{color:#8b949e;white-space:nowrap}
+.lw5g-dtl-tbl td:last-child{color:#e6edf3;word-break:break-all}
+.lw5g-dtl-raw{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:8px 10px;margin-top:6px;font-size:9.5px;color:#79c0ff;word-break:break-all;white-space:pre-wrap}
 .lte-ev-list{flex:1;overflow:auto;padding:4px 0}
 .lte-ev{display:flex;align-items:center;padding:5px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-size:12px}
 .lte-ev:hover{background:rgba(249,130,108,.06)}
@@ -875,20 +887,30 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
 </section>
 
 <section class="panel" id="panel-lw5g-callflow" data-twin="lightweight5g">
-  <div class="lw5g-wrap">
+  <div class="lw5g-cf-main">
     <div class="lw5g-params-bar" id="lw5g-params-bar-callflow"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-callflow" style="display:none"></div>
-    <div class="lw5g-lanes">
-      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs injected by OCUDU DU test_mode (no real UE process)">__ICON_UE__</span>Phantom UE</div>
-      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB DU — cycles UEs through RRC Setup inject / run / release every 10 s via ru_dummy slot driver">__ICON_ENB__</span>OCUDU gNB DU</div>
-    </div>
-    <div id="lw5g-ladder-wrap" style="overflow:auto;flex:1;min-height:200px">
-      <div id="lw5g-ladder-empty" class="lw5g-empty">
-        <b>Waiting for gnb log data…</b>
-        Start the Lightweight 5G Twin with the button above, wait a few seconds for the
-        gNB to connect to Open5GS and begin cycling phantom UEs, then events will appear here.
+    <div class="lw5g-cf-split">
+      <div class="lw5g-ldr-col">
+        <div class="lw5g-lanes">
+          <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs injected by OCUDU DU test_mode (no real UE process)">__ICON_UE__</span>Phantom UE</div>
+          <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB DU — cycles UEs through RRC Setup inject / run / release every 10 s via ru_dummy slot driver">__ICON_ENB__</span>OCUDU gNB DU</div>
+        </div>
+        <div id="lw5g-ladder-wrap" style="overflow:auto;flex:1;min-height:200px">
+          <div id="lw5g-ladder-empty" class="lw5g-empty">
+            <b>Waiting for gnb log data…</b>
+            Start the Lightweight 5G Twin with the button above, wait a few seconds for the
+            gNB to connect to Open5GS and begin cycling phantom UEs, then events will appear here.
+          </div>
+          <svg id="lw5g-ladder-svg" style="display:none;width:100%;overflow:visible"></svg>
+        </div>
       </div>
-      <svg id="lw5g-ladder-svg" style="display:none;width:100%;overflow:visible"></svg>
+      <div id="lw5g-detail-panel" class="lw5g-dtl-col">
+        <div id="lw5g-detail-placeholder" class="lw5g-dtl-ph">
+          ← Click any event in the ladder<br>to inspect the raw log line.
+        </div>
+        <div id="lw5g-detail-content" style="display:none"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -1530,7 +1552,11 @@ const LW5G_PHASE_COLOR = {
   attach:  '#58a6ff',
   nas:     '#3fb950',
   release: '#f85149',
+  cycle:   '#6e7681',
 };
+
+function escSvg(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // 2-lane ladder: Phantom UE (left) ← OCUDU gNB DU (right)
 // In DU test mode the CU-CP/NGAP/AMF path is bypassed; only DU ↔ UE signaling.
@@ -1594,18 +1620,30 @@ function renderLw5gParamsPanel(suffix){
 /* ---------- signaling ladder (2-lane: Phantom UE ← OCUDU DU) ---------- */
 function buildLw5gLadderSvg(events){
   if(!events || events.length === 0) return null;
-  const ROW = 28, PAD_TOP = 56, PAD_BOT = 16, TS_COL = 90, W = 700;
+  const ROW=26, PAD_TOP=56, PAD_BOT=16, TS_COL=90, W=680, GAP_H=38;
   const laneXs = [LW5G_LANE_X(0), LW5G_LANE_X(1)];
-  const H = PAD_TOP + events.length * ROW + PAD_BOT;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;font-family:monospace;font-size:11px">`;
 
+  // Variable-height rows: add GAP_H after any "All established" (nas) event
+  // immediately followed by a "Releasing" (release) event to visualise the
+  // 8000 ms run period and prevent the visual "instantly released" appearance.
+  const rowHeights = events.map((ev, i) => {
+    const nx = events[i+1];
+    return (ev.phase === 'nas' && nx && nx.phase === 'release') ? ROW + GAP_H : ROW;
+  });
+  const H = PAD_TOP + rowHeights.reduce((a,b)=>a+b,0) + PAD_BOT;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;font-family:monospace;font-size:11px">`;
+  svg += `<style>.lw5g-ev rect.hit{fill:transparent;cursor:pointer}`
+       + `.lw5g-ev:hover rect.hit{fill:rgba(88,166,255,.07)}`
+       + `.lw5g-ev.lw5g-sel rect.hit{fill:rgba(88,166,255,.15)}</style>`;
   svg += `<defs>` + Object.entries(LW5G_PHASE_COLOR).map(([ph,col]) =>
-    `<marker id="la-${ph}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="${col}"/></marker>`
+    `<marker id="la-${ph}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">`
+    +`<path d="M0,0 L6,3 L0,6 Z" fill="${col}"/></marker>`
   ).join('') + `</defs>`;
 
   // Lane vertical lines + header boxes
   laneXs.forEach((x, i) => {
-    const col = i === 0 ? '#58a6ff' : '#58a6ff';
+    const col = '#58a6ff';
     const parts = LW5G_LANE_LABELS[i].split('\\n');
     svg += `<line x1="${x}" y1="${PAD_TOP-10}" x2="${x}" y2="${H-PAD_BOT}" stroke="#21262d" stroke-width="1.5"/>`;
     svg += `<rect x="${x-52}" y="4" width="104" height="38" rx="4" fill="#0d1117" stroke="${col}" stroke-width="1.5"/>`;
@@ -1613,30 +1651,79 @@ function buildLw5gLadderSvg(events){
     if(parts[1]) svg += `<text x="${x}" y="34" text-anchor="middle" fill="#8b949e" font-size="9">${parts[1]}</text>`;
   });
 
+  let yOff = PAD_TOP;
   events.forEach((ev, i) => {
-    const y = PAD_TOP + i * ROW + ROW/2;
-    const col = LW5G_PHASE_COLOR[ev.phase] || '#8b949e';
-    const ts  = ev.ts_str ? ev.ts_str.substring(11, 23) : '';
-    const lbl = String(ev.label || '');
+    const rowH = rowHeights[i];
+    const mid  = yOff + ROW/2;
+    const col  = LW5G_PHASE_COLOR[ev.phase] || '#8b949e';
+    const ts   = ev.ts_str ? ev.ts_str.substring(11,23) : '';
+    const lbl  = String(ev.label || '');
 
-    svg += `<text x="${TS_COL-2}" y="${y+4}" fill="#8b949e" font-size="9" text-anchor="end">${ts}</text>`;
+    // Clickable group wraps entire row
+    svg += `<g class="lw5g-ev" data-idx="${i}" onclick="lw5gEventClick(${i})">`;
+    svg += `<rect class="hit" x="0" y="${yOff+1}" width="${W}" height="${ROW-2}"/>`;
 
+    // Timestamp — left margin; label/arrow placed first in document order so
+    // copy-paste gives "label … timestamp" matching visual reading order.
     const si = LW5G_LANES[ev.src], di = LW5G_LANES[ev.dst];
     if(si !== undefined && di !== undefined && si !== di){
-      const x1 = laneXs[si], x2 = laneXs[di];
-      const right = x2 > x1;
-      svg += `<line x1="${x1+(right?5:-5)}" y1="${y}" x2="${x2+(right?-11:11)}" y2="${y}"
-        stroke="${col}" stroke-width="1.5" marker-end="url(#la-${ev.phase})"/>`;
-      svg += `<text x="${(x1+x2)/2}" y="${y-5}" text-anchor="middle" fill="${col}" font-size="9.5">${lbl}</text>`;
+      const x1=laneXs[si], x2=laneXs[di], right=x2>x1;
+      svg += `<line x1="${x1+(right?5:-5)}" y1="${mid}" x2="${x2+(right?-11:11)}" y2="${mid}"`
+           + ` stroke="${col}" stroke-width="1.5" marker-end="url(#la-${ev.phase})"/>`;
+      svg += `<text x="${(x1+x2)/2}" y="${mid-5}" text-anchor="middle" fill="${col}" font-size="9.5">${escSvg(lbl)}</text>`;
     } else {
-      // Internal gNB event — horizontal bullet on gNB lane + label to the right
-      const x = laneXs[1];
-      svg += `<circle cx="${x}" cy="${y}" r="4" fill="${col}" stroke="${col}" stroke-width="1"/>`;
-      svg += `<text x="${x+10}" y="${y+4}" fill="${col}" font-size="9.5">${lbl}</text>`;
+      const x=laneXs[1];
+      svg += `<circle cx="${x}" cy="${mid}" r="4" fill="${col}"/>`;
+      svg += `<text x="${x+10}" y="${mid+4}" fill="${col}" font-size="9.5">${escSvg(lbl)}</text>`;
     }
+    svg += `<text x="${TS_COL-2}" y="${mid+4}" fill="#8b949e" font-size="9" text-anchor="end">${ts}</text>`;
+    svg += `</g>`;
+
+    // Run-period gap visual: dashed line + label in the extra space
+    if(rowH > ROW){
+      const gapMid = yOff + ROW + GAP_H/2;
+      const cx = laneXs[1], runM = lbl.match(/run (\d+) ms/);
+      const runLabel = runM ? `── ${runM[1]} ms active ──` : '── running ──';
+      svg += `<line x1="${cx-70}" y1="${gapMid}" x2="${cx+70}" y2="${gapMid}"`
+           + ` stroke="#3a3f4a" stroke-dasharray="4,3"/>`;
+      svg += `<text x="${cx}" y="${gapMid+4}" text-anchor="middle" fill="#6e7681" font-size="9">${runLabel}</text>`;
+    }
+
+    yOff += rowH;
   });
 
   return svg + '</svg>';
+}
+
+function lw5gEventClick(idx){
+  // Highlight selected row in SVG
+  const wrapDiv = document.getElementById('lw5g-ladder-svg-wrap');
+  if(wrapDiv){
+    wrapDiv.querySelectorAll('g.lw5g-ev.lw5g-sel').forEach(g=>g.classList.remove('lw5g-sel'));
+    const g = wrapDiv.querySelector(`g.lw5g-ev[data-idx="${idx}"]`);
+    if(g) g.classList.add('lw5g-sel');
+  }
+  // Populate detail panel
+  const events = (_lw5gData && _lw5gData.events) || [];
+  const ev = events[idx];
+  const dtl = document.getElementById('lw5g-detail-content');
+  const ph  = document.getElementById('lw5g-detail-placeholder');
+  if(!ev || !dtl) return;
+  if(ph) ph.style.display = 'none';
+  dtl.style.display = '';
+  const col = LW5G_PHASE_COLOR[ev.phase] || '#8b949e';
+  const ts  = ev.ts_str ? ev.ts_str.substring(11,23) : (ev.ts_str||'');
+  const rows = [
+    ['Timestamp', ev.ts_str || ts],
+    ['Phase',     ev.phase || '—'],
+    ['RNTI',      ev.rnti  || '—'],
+    ['Flow',      (ev.src||'') + (ev.dst && ev.dst!==ev.src ? ' → '+ev.dst : '') || '—'],
+  ].map(([k,v])=>`<tr><td>${escHtml(k)}</td><td>${escHtml(String(v))}</td></tr>`).join('');
+  dtl.innerHTML =
+    `<div class="lw5g-dtl-hdr" style="color:${col}">${escHtml(ev.label||'')}</div>`
+   +`<table class="lw5g-dtl-tbl">${rows}</table>`
+   +`<div style="color:#8b949e;font-size:9px;text-transform:uppercase;letter-spacing:.06em">Raw log line</div>`
+   +`<div class="lw5g-dtl-raw">${escHtml(ev.raw_line||'(no raw line — startup or synthetic event)')}</div>`;
 }
 
 function renderLw5gCallFlow(data){
