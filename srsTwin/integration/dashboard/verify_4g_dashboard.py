@@ -283,6 +283,60 @@ else:
     check("docker-compose.4g.yml exists", False)
 
 # ---------------------------------------------------------------------------
+# 10. Lightweight 5G twin: parser, backend, HTML elements, JS renderers
+# ---------------------------------------------------------------------------
+try:
+    from parse_lw5g import build_lw5g  # type: ignore
+    check("parse_lw5g imports OK", True)
+except Exception as exc:
+    check("parse_lw5g imports OK", False, str(exc))
+
+try:
+    lw5g_log = os.path.join(HERE, "logs", "gnb.log")
+    lw5g_data = build_lw5g(log_path=lw5g_log if os.path.isfile(lw5g_log) else None)
+    check("build_lw5g() runs without error", True)
+    check("build_lw5g() returns events list",  "events"  in lw5g_data)
+    check("build_lw5g() returns ue_kpis dict", "ue_kpis" in lw5g_data)
+    check("build_lw5g() returns summary dict", "summary" in lw5g_data)
+except Exception as exc:
+    check("build_lw5g() runs without error", False, str(exc))
+
+check("serve_dashboard imports build_lw5g", "from parse_lw5g import build_lw5g" in serve_src)
+check("serve_dashboard has /api/lw5g/data",  "/api/lw5g/data" in serve_src)
+check("serve_dashboard has /api/lw5g/ues",   "/api/lw5g/ues"  in serve_src)
+check("serve_dashboard has lightweight5g twin registry", '"lightweight5g"' in serve_src)
+
+dc_lw5g = os.path.join(INTEGRATION, "docker-compose.lw5g.yml")
+check("docker-compose.lw5g.yml exists", os.path.isfile(dc_lw5g))
+if os.path.isfile(dc_lw5g):
+    dc_lw5g_src = open(dc_lw5g, encoding="utf-8").read()
+    check("docker-compose.lw5g.yml uses gnb_testmode.yml", "gnb_testmode.yml" in dc_lw5g_src)
+    check("docker-compose.lw5g.yml disables srsue",        "disabled" in dc_lw5g_src)
+
+gnb_cfg = os.path.join(INTEGRATION, "lightweight5g", "gnb_testmode.yml")
+check("gnb_testmode.yml exists", os.path.isfile(gnb_cfg))
+if os.path.isfile(gnb_cfg):
+    gnb_src = open(gnb_cfg, encoding="utf-8").read()
+    check("gnb_testmode.yml has ru_dummy",   "ru_dummy:" in gnb_src)
+    check("gnb_testmode.yml has test_mode",  "test_mode:" in gnb_src)
+    check("gnb_testmode.yml has nof_ues",    "nof_ues:" in gnb_src)
+
+html_src = open(os.path.join(HERE, "index.html"), encoding="utf-8").read()
+check("index.html has lw5g-ladder-svg",       "lw5g-ladder-svg" in html_src)
+check("index.html has lw5g-kpi-cards",        "lw5g-kpi-cards"  in html_src)
+check("index.html has lw5g-lat-canvas",       "lw5g-lat-canvas" in html_src)
+check("index.html has lw5g-timeline-canvas",  "lw5g-timeline-canvas" in html_src)
+check("index.html has lw5g-topo-svg",         "lw5g-topo-svg"   in html_src)
+check("index.html has pollLw5g",              "pollLw5g" in html_src)
+check("index.html has renderLw5gCallFlow",    "renderLw5gCallFlow" in html_src)
+check("index.html has renderLw5gOverview",    "renderLw5gOverview" in html_src)
+check("index.html UE slider max=32",          'max="32"' in html_src or "max=\\'32\\'" in html_src
+      or re.search(r"max=['\"]32['\"]", html_src) is not None)
+check("index.html POST /api/lw5g/ues",        "/api/lw5g/ues" in html_src)
+check("lightweight5g NOT in NOT_BUILT_TWINS", "NOT_BUILT_TWINS = new Set([])" in html_src
+      or re.search(r"NOT_BUILT_TWINS\s*=\s*new Set\(\[\s*\]\)", html_src) is not None)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 print(f"\n{'='*54}")

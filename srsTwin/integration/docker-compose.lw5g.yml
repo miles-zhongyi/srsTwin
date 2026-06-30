@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# Lightweight 5G Twin overlay.
+#
+# Extends docker-compose.yml: keeps the 5gc service exactly as-is,
+# swaps the gnb service to use the test-mode config (ru_dummy + phantom UEs),
+# and removes the srsue service (not needed — phantom UEs are internal to gnb).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.lw5g.yml up -d 5gc gnb
+#
+# The gnb will log to gnb-logs volume at /tmp/gnb.log.
+# serve_dashboard.py's /api/lw5g/data endpoint tails that log for events.
+
+services:
+  # Override gnb to use test-mode config (no ZMQ, no srsue needed)
+  gnb:
+    volumes:
+      - ./lightweight5g/gnb_testmode.yml:/gnb_zmq.yml:ro
+      - gnb-logs:/tmp
+    command: ["-c", "/gnb_zmq.yml"]
+
+  # Disable srsue – phantom UEs are created internally by the gnb in test mode
+  srsue:
+    profiles:
+      - disabled

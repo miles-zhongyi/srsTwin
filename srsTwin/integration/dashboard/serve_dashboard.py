@@ -34,6 +34,7 @@ INTEGRATION = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
 from parse_callflow import build, render_html  # noqa: E402
 from parse_4g import build_4g  # noqa: E402
+from parse_lw5g import build_lw5g  # noqa: E402
 from parse_rrc import build_rrc  # noqa: E402
 from parse_signaling import build_signaling  # noqa: E402
 from trace_replay import apply_trace_replay  # noqa: E402
@@ -150,6 +151,22 @@ TWINS = {
         # name above and are unaffected by this.
         "status_containers": ["du", "ru", "ru2", "ru3", "poc_stresstest-ue-sim-1", "dashboard"],
     },
+    "lightweight5g": {
+        "title": "Lightweight 5G Twin",
+        # Uses the base 5G compose file + the lw5g overlay (ru_dummy + test mode, no srsue)
+        "compose": ["docker", "compose",
+                    "-f", os.path.join(INTEGRATION, "docker-compose.yml"),
+                    "-f", os.path.join(INTEGRATION, "docker-compose.lw5g.yml")],
+        "cwd": INTEGRATION,
+        "start_services": ["5gc", "gnb"],
+        "stop_services": ["gnb", "srsue", "5gc"],
+        "status_containers": ["srstwin_5gc", "srstwin_gnb"],
+        # YAML config path inside the lightweight5g/ directory — used when
+        # dynamically adjusting nof_ues without a full image rebuild.
+        "gnb_config": os.path.join(INTEGRATION, "lightweight5g", "gnb_testmode.yml"),
+        "gnb_container": "srstwin_gnb",
+        "gnb_log_path": "/tmp/gnb.log",
+    },
 }
 
 
@@ -244,6 +261,53 @@ def sim_metrics() -> dict:
         return json.loads(body)
     except (URLError, HTTPError, OSError, TimeoutError, json.JSONDecodeError) as exc:
         return {"ok": False, "error": f"simulation dashboard unreachable: {exc}"}
+
+
+def lw5g_data() -> dict:
+    """Parse the lightweight-5G gnb log and return events + KPIs.
+
+    Tries to read from the running container via docker exec first; falls back
+    to the log file written by pull_logs() if the container isn't running."""
+    twin = TWINS["lightweight5g"]
+    container = twin["gnb_container"]
+    log_local = os.path.join(HERE, "logs", "gnb.log")
+    return build_lw5g(log_path=None, container=container)
+
+
+def lw5g_set_ues(nof_ues: int) -> dict:
+    """Hot-patch the nof_ues value in gnb_testmode.yml and restart the gnb
+    container so the new UE count takes effect immediately."""
+    if not (1 <= nof_ues <= 32):
+        return {"ok": False, "error": "nof_ues must be 1-32"}
+    twin = TWINS["lightweight5g"]
+    cfg_path = twin["gnb_config"]
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            content = f.read()
+        # Replace the nof_ues line (YAML key under test_mode.test_ue)
+        import re as _re
+        new_content = _re.sub(
+            r"(^\s+nof_ues:\s*)\d+",
+            lambda m: m.group(1) + str(nof_ues),
+            content, flags=_re.MULTILINE,
+        )
+        if new_content == content:
+            return {"ok": False, "error": "nof_ues line not found in gnb_testmode.yml"}
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+    except OSError as exc:
+        return {"ok": False, "error": f"config edit failed: {exc}"}
+    # Restart gnb container so the new config (volume-mounted into the container) takes effect
+    compose = twin["compose"] + ["restart", "gnb"]
+    try:
+        result = subprocess.run(compose, cwd=twin["cwd"], capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            return {"ok": False, "error": (result.stderr or result.stdout or "").strip()[-400:]}
+        return {"ok": True, "nof_ues": nof_ues}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "docker compose restart timed out"}
+    except (subprocess.SubprocessError, OSError) as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def sim_set_ues(num_ues: int) -> dict:
@@ -607,6 +671,8 @@ def make_handler(state: DashboardState):
                 return self._json(all_twin_status())
             if parsed.path == "/api/sim/metrics":
                 return self._json(sim_metrics())
+            if parsed.path == "/api/lw5g/data":
+                return self._json(lw5g_data())
             return SimpleHTTPRequestHandler.do_GET(self)
 
         def do_POST(self):
@@ -622,6 +688,8 @@ def make_handler(state: DashboardState):
                 return self._twin_action(stop_twin)
             if parsed.path == "/api/sim/ues":
                 return self._sim_set_ues()
+            if parsed.path == "/api/lw5g/ues":
+                return self._lw5g_set_ues()
             self.send_error(405)
             return None
 
@@ -651,6 +719,19 @@ def make_handler(state: DashboardState):
                 return self._json({"ok": False, "error": "expected {num_ues: <non-negative int>}"}, 400)
             result = sim_set_ues(num_ues)
             return self._json(result, 200 if result.get("ok") else 502)
+
+        def _lw5g_set_ues(self):
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
+            nof_ues = body.get("nof_ues") if isinstance(body, dict) else None
+            if not isinstance(nof_ues, int) or nof_ues < 1:
+                return self._json({"ok": False, "error": "expected {nof_ues: <1-32>}"}, 400)
+            result = lw5g_set_ues(nof_ues)
+            return self._json(result, 200 if result.get("ok") else 400)
 
         def _set_pair_power(self, key: str):
             length = int(self.headers.get("Content-Length", 0))

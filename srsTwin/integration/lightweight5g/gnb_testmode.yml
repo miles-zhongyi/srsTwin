@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: BSD-3-Clause-Open-MPI
+#
+# OCUDU gNB – Lightweight 5G Twin (test-mode, no real radio hardware)
+#
+# Uses ru_dummy (wall-clock slot ticks, zero IQ I/O) + DU test-mode phantom
+# UEs.  The phantom UEs traverse the full DU MAC/RLC/PDCP/RRC → F1AP
+# (in-process) → CU-CP → NGAP → Open5GS AMF path, so every registration
+# event that appears in gnb.log and the Open5GS AMF log is a real 5G NAS
+# Registration Accept / PDU Session Establishment Accepted.
+#
+# Key parameters
+#   test_mode.test_ue.nof_ues             – number of simultaneous phantom UEs
+#   test_mode.test_ue.attach_detach_duration_ms – ms of active data before
+#                                                  release-then-reattach cycle
+#   test_mode.test_ue.auto_ack_indication_delay – slots to wait before
+#                                                  auto-ACK HARQ (required
+#                                                  because there is no real UE
+#                                                  sending UL feedback)
+#
+# Dashboard: parse_lw5g.py tails /tmp/gnb.log and produces structured events
+# consumed by serve_dashboard.py → /api/lw5g/data.
+
+cu_cp:
+  amf:
+    addrs: 10.53.1.2
+    port: 38412
+    bind_addrs: 10.53.1.3
+    supported_tracking_areas:
+      - tac: 7
+        plmn_list:
+          - plmn: "00101"
+            tai_slice_support_list:
+              - sst: 1
+
+# Dummy RU: drives the slot clock from wall time, no IQ sockets.
+ru_dummy:
+  dl_processing_delay: 1
+  time_scaling: 1.0
+
+cell_cfg:
+  dl_arfcn: 368500
+  band: 3
+  channel_bandwidth_MHz: 10
+  common_scs: 15
+  plmn: "00101"
+  tac: 7
+  pci: 1
+  prach:
+    prach_config_index: 1
+  pdsch:
+    mcs_table: qam64
+  pusch:
+    mcs_table: qam64
+
+# Test mode: N phantom UEs cycle attach → data → release indefinitely.
+# auto_ack_indication_delay must be set because there is no real UE to send
+# HARQ feedback; the DU will auto-ACK after this many slots.
+test_mode:
+  test_ue:
+    rnti: 0x4444
+    nof_ues: 4
+    ue_creation_stagger_slots: 10
+    pdsch_active: true
+    pusch_active: true
+    auto_ack_indication_delay: 4
+    attach_detach_duration_ms: 8000
+    attach_detach_guard_duration_ms: 2000
+
+log:
+  filename: /tmp/gnb.log
+  all_level: info
+  rrc_level: debug
+  ngap_level: debug
+  f1ap_level: info
+  mac_level: info
+  hex_max_size: 64
+
+pcap:
+  ngap_enable: enable
+  ngap_filename: /tmp/gnb_ngap.pcap
+  mac_enable: enable
+  mac_filename: /tmp/gnb_mac.pcap

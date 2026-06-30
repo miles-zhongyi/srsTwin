@@ -870,16 +870,19 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
 
 <section class="panel" id="panel-lw5g-callflow" data-twin="lightweight5g">
   <div class="lw5g-wrap">
-    <p class="lw5g-desc">A planned lightweight 5G twin: PHY-abstract UEs (no real radio stack) generating
-      real RRC/NAS signaling toward a 5G core, scaling far beyond what a real protocol stack can run on
-      one host. This is a dashboard preview built ahead of the backend — the controls below don't do
-      anything yet, but the layout is what they'll drive once it exists.</p>
+    <p class="lw5g-desc">Lightweight 5G Twin: OCUDU gNB in test-mode with <em>ru_dummy</em>
+      (no real radio hardware). Phantom UEs cycle through the full DU MAC/RLC/PDCP/RRC → CU-CP →
+      NGAP → Open5GS AMF path. Start the twin, then watch real 5G registration events appear below.
+    </p>
     <div class="lw5g-params-bar" id="lw5g-params-bar-callflow"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-callflow" style="display:none"></div>
-    <div class="lw5g-empty">
-      <b>Call-flow view — coming once the backend exists</b>
-      A live signaling ladder (RRC/NAS), similar to the 4G LTE twin's, will appear here once the
-      lightweight 5G twin's UE engine is built.
+    <div id="lw5g-ladder-wrap" style="overflow:auto;flex:1;min-height:200px">
+      <div id="lw5g-ladder-empty" class="lw5g-empty">
+        <b>Waiting for gnb log data…</b>
+        Start the Lightweight 5G Twin with the button above, wait a few seconds for the
+        gNB to connect to Open5GS and begin cycling phantom UEs, then events will appear here.
+      </div>
+      <svg id="lw5g-ladder-svg" style="display:none;width:100%;overflow:visible"></svg>
     </div>
   </div>
 </section>
@@ -888,10 +891,38 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   <div class="lw5g-wrap">
     <div class="lw5g-params-bar" id="lw5g-params-bar-overview"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-overview" style="display:none"></div>
-    <h3 style="font-size:14px;margin:18px 0 10px;color:#58a6ff">Analytics (preview)</h3>
+    <div id="lw5g-kpi-cards" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
     <div class="lw5g-analytics">
-      <div class="lw5g-chart-box"><b>Admission outcomes</b><p class="lw5g-chart-empty">No data yet — backend not built.</p></div>
-      <div class="lw5g-chart-box"><b>Signaling load over time</b><p class="lw5g-chart-empty">No data yet — backend not built.</p></div>
+      <div class="lw5g-chart-box" style="min-height:180px">
+        <b>Attach latency (ms)</b>
+        <canvas id="lw5g-lat-canvas" height="140"></canvas>
+        <p class="lw5g-chart-empty" id="lw5g-lat-empty">No data yet.</p>
+      </div>
+      <div class="lw5g-chart-box" style="min-height:180px">
+        <b>Signaling event timeline</b>
+        <canvas id="lw5g-timeline-canvas" height="140"></canvas>
+        <p class="lw5g-chart-empty" id="lw5g-timeline-empty">No data yet.</p>
+      </div>
+      <div class="lw5g-chart-box" id="lw5g-topo-box">
+        <b>Stack topology</b>
+        <svg id="lw5g-topo-svg" viewBox="0 0 560 120" style="width:100%;margin-top:8px">
+          <defs><marker id="lw5g-ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="#8b949e"/></marker></defs>
+          <rect x="10" y="36" width="110" height="44" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+          <text x="65" y="55" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">Phantom UEs</text>
+          <text x="65" y="71" text-anchor="middle" fill="#8b949e" font-size="9">PHY-abstract</text>
+          <rect x="220" y="36" width="110" height="44" rx="6" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+          <text x="275" y="55" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="600">OCUDU gNB</text>
+          <text x="275" y="71" text-anchor="middle" fill="#8b949e" font-size="9">ru_dummy + test_mode</text>
+          <rect x="430" y="36" width="110" height="44" rx="6" fill="#0d1117" stroke="#3fb950" stroke-width="1.5"/>
+          <text x="485" y="55" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">Open5GS</text>
+          <text x="485" y="71" text-anchor="middle" fill="#8b949e" font-size="9">5G Core (AMF)</text>
+          <line x1="120" y1="58" x2="218" y2="58" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#lw5g-ar)" stroke-dasharray="5,3"/>
+          <text x="169" y="50" text-anchor="middle" fill="#58a6ff" font-size="9">MAC/RLC/PDCP/RRC</text>
+          <line x1="330" y1="58" x2="428" y2="58" stroke="#8b949e" stroke-width="1.5" marker-end="url(#lw5g-ar)"/>
+          <text x="379" y="50" text-anchor="middle" fill="#8b949e" font-size="9">NGAP</text>
+        </svg>
+      </div>
     </div>
   </div>
 </section>
@@ -1096,7 +1127,7 @@ const TWIN_TITLES = {
 // time, but it has no compose stack yet — the backend doesn't know this key
 // at all. The control bar reflects that honestly (disabled, "not built
 // yet") instead of pretending a start/stop action would do anything.
-const NOT_BUILT_TWINS = new Set(['lightweight5g']);
+const NOT_BUILT_TWINS = new Set([]);  // lightweight5g backend is now live
 const TWIN_ACCENT_CLASS = {simulation: 'accent-sim', lightweight5g: 'accent-lw5g'};
 let activeTwin = 'lte4g_full';
 let twinSwitching = false;   // one shared header bar now, not per-twin busy state
@@ -1189,6 +1220,7 @@ function showTwinView(key){
   if(firstTab) activateTab(firstTab.dataset.tab);
   renderTwinCtrlBar();
   if(key === 'simulation') pollSimulation();
+  if(key === 'lightweight5g') pollLw5g();
 }
 
 pollTwinStatus();
@@ -1460,21 +1492,37 @@ async function pollSimulation(){
 }
 setInterval(pollSimulation, 4000);
 
-/* ===================  Lightweight 5G twin (preview, no backend yet)  ===================
-   Dashboard built ahead of the implementation — both controls here are
-   real/interactive (so the page doesn't feel broken) but don't call any
-   API, since there's nothing behind them yet. State is just kept in JS and
-   mirrored across both tabs that show it (Call Flow / Overview). */
-let lw5gUeCount = 50;
-let lw5gPattern = 'bursty';
+/* ===================  Lightweight 5G twin  ===================
+   Backend: OCUDU gnb in test-mode with ru_dummy.
+   API: GET /api/lw5g/data  → {events, ue_kpis, summary, has_live}
+        POST /api/lw5g/ues  {nof_ues: N}  → restarts gnb with new UE count */
+let lw5gUeCount = 4;
+let lw5gPattern = 'cyclic';
+let _lw5gData = null;   // last fetched data from /api/lw5g/data
+
 const LW5G_PATTERNS = [
+  {key:'cyclic', label:'Cyclic',
+   desc:'UEs attach, hold for the configured duration, then release and re-attach — models a continuously repeating signaling storm cycle.'},
   {key:'bursty', label:'Bursty',
-   desc:'UEs arrive in short, dense bursts separated by quiet periods — models a flash-crowd or paging-storm style surge.'},
-  {key:'step-increase', label:'Step increase',
-   desc:'UE count rises in discrete steps and holds at each plateau — models a gradual, deliberate ramp-up in load.'},
+   desc:'UEs arrive in short, dense bursts (configured via scenario.yml) — models a flash-crowd or paging-storm surge.'},
   {key:'random', label:'Random',
    desc:'UEs arrive at uniformly random times — models steady, uncorrelated background load.'},
 ];
+
+// Phase color palette for the signaling ladder
+const LW5G_PHASE_COLOR = {
+  setup:    '#8b949e',
+  attach:   '#58a6ff',
+  nas:      '#3fb950',
+  security: '#d29922',
+  bearer:   '#bc8cff',
+  release:  '#f85149',
+};
+
+// Lane positions for the 5G ladder: UE, gNB, AMF
+const LW5G_LANES = {UE:0, gNB:1, AMF:2};
+const LW5G_LANE_LABELS = ['UE\nPhantom', 'gNB\nOCUDU', 'AMF\nOpen5GS'];
+const LW5G_LANE_X = i => [100, 340, 580][i];  // SVG x positions
 
 function renderLw5gParamsBar(suffix){
   const bar = document.getElementById(`lw5g-params-bar-${suffix}`);
@@ -1482,15 +1530,24 @@ function renderLw5gParamsBar(suffix){
   if(!bar || !panel) return;
   const panelOpen = panel.style.display !== 'none';
   bar.innerHTML = `<b>UE count: ${lw5gUeCount}</b>
-    <input type="range" min="0" max="2000" value="${lw5gUeCount}" id="lw5g-ue-slider-${suffix}">
+    <input type="range" min="1" max="32" value="${lw5gUeCount}" id="lw5g-ue-slider-${suffix}">
     <span class="lw5g-ue-val" id="lw5g-ue-val-${suffix}">${lw5gUeCount}</span>
     <button type="button" class="lw5g-params-toggle" id="lw5g-params-toggle-${suffix}">Parameters ${panelOpen ? '▲' : '▾'}</button>`;
   const slider = document.getElementById(`lw5g-ue-slider-${suffix}`);
   const val = document.getElementById(`lw5g-ue-val-${suffix}`);
   slider.oninput = () => { val.textContent = slider.value; };
-  slider.onchange = () => {
+  slider.onchange = async () => {
     lw5gUeCount = +slider.value;
-    ['callflow', 'overview'].forEach(renderLw5gParamsBar);   // keep both tabs in sync
+    ['callflow', 'overview'].forEach(renderLw5gParamsBar);
+    try {
+      const r = await fetch('/api/lw5g/ues', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({nof_ues: lw5gUeCount}),
+      });
+      const j = await r.json();
+      if(!j.ok) console.warn('lw5g/ues:', j.error);
+    } catch(e) { console.warn('lw5g/ues fetch failed', e); }
   };
   document.getElementById(`lw5g-params-toggle-${suffix}`).onclick = () => {
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
@@ -1519,6 +1576,206 @@ function renderLw5gParamsPanel(suffix){
   renderLw5gParamsBar(suffix);
   renderLw5gParamsPanel(suffix);
 });
+
+/* ---------- signaling ladder ---------- */
+function buildLw5gLadderSvg(events){
+  if(!events || events.length === 0) return null;
+  const ROW = 32, PAD_TOP = 60, PAD_BOT = 20;
+  const H = PAD_TOP + events.length * ROW + PAD_BOT;
+  const W = 700;
+  const laneXs = [LW5G_LANE_X(0), LW5G_LANE_X(1), LW5G_LANE_X(2)];
+  let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;font-family:monospace;font-size:11px">`;
+
+  // Lane headers
+  const laneColors = ['#58a6ff','#58a6ff','#3fb950'];
+  LW5G_LANE_LABELS.forEach((lbl, i) => {
+    const lines = lbl.split('\\n');
+    svg += `<line x1="${laneXs[i]}" y1="${PAD_TOP-12}" x2="${laneXs[i]}" y2="${H-PAD_BOT}" stroke="#21262d" stroke-width="1.5"/>`;
+    svg += `<rect x="${laneXs[i]-44}" y="6" width="88" height="38" rx="4" fill="#0d1117" stroke="${laneColors[i]}" stroke-width="1.5"/>`;
+    svg += `<text x="${laneXs[i]}" y="22" text-anchor="middle" fill="${laneColors[i]}" font-size="11" font-weight="600">${lines[0]}</text>`;
+    if(lines[1]) svg += `<text x="${laneXs[i]}" y="36" text-anchor="middle" fill="#8b949e" font-size="9">${lines[1]}</text>`;
+  });
+
+  // Arrows
+  const arId = 'lw5g-ldr-ar';
+  svg += `<defs>` + Object.entries(LW5G_PHASE_COLOR).map(([ph,col]) =>
+    `<marker id="${arId}-${ph}" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="${col}"/></marker>`
+  ).join('') + `</defs>`;
+
+  events.forEach((ev, i) => {
+    const y = PAD_TOP + i * ROW + ROW/2;
+    const srcIdx = LW5G_LANES[ev.src];
+    const dstIdx = LW5G_LANES[ev.dst];
+    const col = LW5G_PHASE_COLOR[ev.phase] || '#8b949e';
+    const ts = ev.ts_str ? ev.ts_str.substring(11, 23) : '';  // HH:MM:SS.mmm
+    const ue_tag = ev.ue_id !== null && ev.ue_id !== undefined ? ` [ue${ev.ue_id}]` : '';
+
+    // Timestamp
+    svg += `<text x="5" y="${y+4}" fill="#8b949e" font-size="9" style="font-variant-numeric:tabular-nums">${ts}</text>`;
+
+    if(srcIdx !== undefined && dstIdx !== undefined && srcIdx !== dstIdx){
+      const x1 = laneXs[srcIdx], x2 = laneXs[dstIdx];
+      const right = x2 > x1;
+      svg += `<line x1="${x1+(right?4:-4)}" y1="${y}" x2="${x2+(right?-10:10)}" y2="${y}"
+        stroke="${col}" stroke-width="1.5" marker-end="url(#${arId}-${ev.phase})"/>`;
+      const mx = (x1+x2)/2;
+      svg += `<text x="${mx}" y="${y-4}" text-anchor="middle" fill="${col}" font-size="9.5">${ev.label}${ue_tag}</text>`;
+    } else {
+      // gNB-internal event
+      const x = laneXs[1] || 340;
+      svg += `<circle cx="${x}" cy="${y}" r="4" fill="none" stroke="${col}" stroke-width="1.5"/>`;
+      svg += `<text x="${x+8}" y="${y+4}" fill="${col}" font-size="9.5">${ev.label}${ue_tag}</text>`;
+    }
+  });
+
+  svg += '</svg>';
+  return svg;
+}
+
+function renderLw5gCallFlow(data){
+  const empty = document.getElementById('lw5g-ladder-empty');
+  const svg   = document.getElementById('lw5g-ladder-svg');
+  if(!data || !data.has_live || !data.events || data.events.length === 0){
+    if(empty) empty.style.display = '';
+    if(svg)   svg.style.display = 'none';
+    return;
+  }
+  const svgHtml = buildLw5gLadderSvg(data.events);
+  if(!svgHtml){ if(empty) empty.style.display = ''; return; }
+  if(empty) empty.style.display = 'none';
+  if(svg){
+    svg.style.display = '';
+    // Use outerHTML replacement via wrapper
+    svg.outerHTML = `<div id="lw5g-ladder-svg-wrap" style="overflow-x:auto">${svgHtml}</div>`;
+  } else {
+    const wrap = document.getElementById('lw5g-ladder-svg-wrap');
+    if(wrap) wrap.innerHTML = svgHtml;
+  }
+}
+
+/* ---------- overview KPI cards + charts ---------- */
+function lw5gKpiCard(lbl, val, color='#e6edf3'){
+  return `<div style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-width:110px">
+    <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">${lbl}</div>
+    <div style="font-size:20px;font-weight:700;color:${color};font-variant-numeric:tabular-nums;margin-top:4px">${val}</div>
+  </div>`;
+}
+
+function drawLw5gLatBar(canvas, ue_kpis){
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const entries = Object.entries(ue_kpis || {});
+  if(!entries.length){ ctx.clearRect(0,0,canvas.width,canvas.height); return; }
+  const W = canvas.parentElement.clientWidth - 32 || 260;
+  const H = 130;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+  const barW = Math.min(40, Math.floor((W - 20) / entries.length) - 4);
+  const maxLat = Math.max(...entries.map(([,k]) => k.median_attach_ms || 0), 100);
+  entries.forEach(([ue_id, kpi], i) => {
+    const lat = kpi.median_attach_ms || 0;
+    const bh = Math.max(2, Math.round((lat / maxLat) * (H - 30)));
+    const x = 10 + i * (barW + 4);
+    const y = H - bh - 20;
+    ctx.fillStyle = '#58a6ff';
+    ctx.beginPath(); ctx.roundRect(x, y, barW, bh, 3); ctx.fill();
+    ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace';
+    ctx.fillText(`UE${ue_id}`, x + barW/2 - 12, H - 6);
+    ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 10px monospace';
+    ctx.fillText(`${Math.round(lat)}`, x + barW/2 - 8, y - 3);
+  });
+  // Y-axis label
+  ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace';
+  ctx.fillText(`${Math.round(maxLat)} ms`, 0, 10);
+}
+
+function drawLw5gTimeline(canvas, events){
+  if(!canvas || !events || events.length < 2) return;
+  const W = canvas.parentElement.clientWidth - 32 || 260;
+  const H = 130;
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  // Bucket events by phase into 10 buckets over the time range
+  const ts0 = events[0].ts, ts1 = events[events.length-1].ts;
+  const span = ts1 - ts0 || 1;
+  const BUCKETS = 20;
+  const buckets = Array(BUCKETS).fill(0);
+  const phaseCounts = {};
+  events.forEach(ev => {
+    const idx = Math.min(BUCKETS-1, Math.floor((ev.ts - ts0) / span * BUCKETS));
+    buckets[idx]++;
+    phaseCounts[ev.phase] = (phaseCounts[ev.phase] || 0) + 1;
+  });
+  const maxB = Math.max(...buckets, 1);
+  const bW = (W - 10) / BUCKETS;
+  const phaseColors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149'];
+  const phases = ['attach','nas','security','bearer','release'];
+  phases.forEach((ph, pi) => {
+    const phaseEvents = events.filter(e => e.phase === ph);
+    const phBuckets = Array(BUCKETS).fill(0);
+    phaseEvents.forEach(ev => {
+      const idx = Math.min(BUCKETS-1, Math.floor((ev.ts - ts0) / span * BUCKETS));
+      phBuckets[idx]++;
+    });
+    phBuckets.forEach((cnt, i) => {
+      if(!cnt) return;
+      const bh = Math.max(2, Math.round(cnt / maxB * (H - 20)));
+      ctx.fillStyle = phaseColors[pi] + 'cc';
+      ctx.fillRect(10 + i * bW, H - bh - 10, bW - 1, bh);
+    });
+  });
+  // X axis
+  ctx.strokeStyle = '#21262d'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(10, H-10); ctx.lineTo(W, H-10); ctx.stroke();
+  ctx.fillStyle = '#8b949e'; ctx.font = '8px monospace';
+  ctx.fillText(`0s`, 10, H-2);
+  ctx.fillText(`${Math.round(span)}s`, W-20, H-2);
+}
+
+function renderLw5gOverview(data){
+  const cards = document.getElementById('lw5g-kpi-cards');
+  const latEmpty = document.getElementById('lw5g-lat-empty');
+  const tlEmpty  = document.getElementById('lw5g-timeline-empty');
+  if(!data || !data.has_live){
+    if(cards) cards.innerHTML = lw5gKpiCard('Status','No data','#8b949e');
+    return;
+  }
+  const s = data.summary || {};
+  if(cards) cards.innerHTML = [
+    lw5gKpiCard('NG setup',    s.ng_setup_done ? 'Done' : 'Pending', s.ng_setup_done ? '#3fb950':'#f85149'),
+    lw5gKpiCard('UEs active',  s.active_ues ?? '–', '#58a6ff'),
+    lw5gKpiCard('Attaches',    s.total_attach ?? 0, '#58a6ff'),
+    lw5gKpiCard('Success',     (s.success_rate ?? 0) + '%', s.success_rate >= 90 ? '#3fb950':'#d29922'),
+    lw5gKpiCard('Median (ms)', s.median_attach_ms ?? '–', '#e6edf3'),
+    lw5gKpiCard('P90 (ms)',    s.p90_attach_ms ?? '–', '#e6edf3'),
+    lw5gKpiCard('Reg/min',     s.reg_rate_per_min ?? 0, '#58a6ff'),
+  ].join('');
+
+  const latCanvas = document.getElementById('lw5g-lat-canvas');
+  const hasKpis = data.ue_kpis && Object.keys(data.ue_kpis).length > 0;
+  if(latEmpty) latEmpty.style.display = hasKpis ? 'none' : '';
+  if(hasKpis) drawLw5gLatBar(latCanvas, data.ue_kpis);
+
+  const tlCanvas = document.getElementById('lw5g-timeline-canvas');
+  const hasEvents = data.events && data.events.length > 2;
+  if(tlEmpty) tlEmpty.style.display = hasEvents ? 'none' : '';
+  if(hasEvents) drawLw5gTimeline(tlCanvas, data.events);
+}
+
+async function pollLw5g(){
+  if(activeTwin !== 'lightweight5g') return;
+  try{
+    const r = await fetch('/api/lw5g/data');
+    _lw5gData = await r.json();
+    renderLw5gCallFlow(_lw5gData);
+    renderLw5gOverview(_lw5gData);
+  }catch(e){
+    renderLw5gCallFlow(null);
+    renderLw5gOverview(null);
+  }
+}
+setInterval(pollLw5g, 5000);
 
 /* overview cards */
 function card(lbl, val, cls=''){
