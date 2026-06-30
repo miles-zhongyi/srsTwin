@@ -145,8 +145,8 @@ html_checks = [
     ('Simulation analytics: PRB donut', 'id="sim-prb-donut"'),
     ('Simulation analytics: outcome bar', 'id="sim-outcome-bar"'),
     ('Lightweight 5G sidebar item', 'data-twin="lightweight5g" data-title="Lightweight 5G Twin"'),
-    ('Lightweight 5G Call Flow tab', 'data-tab="lw5g_callflow"'),
-    ('Lightweight 5G Overview tab', 'data-tab="lw5g_overview"'),
+    ('Lightweight 5G Call Flow tab', 'data-tab="lw5g-callflow"'),
+    ('Lightweight 5G Overview tab', 'data-tab="lw5g-overview"'),
     ('panel-lw5g-callflow',  'id="panel-lw5g-callflow"'),
     ('panel-lw5g-overview',  'id="panel-lw5g-overview"'),
     ('Lightweight 5G blue accent', 'tab-lw5g'),
@@ -330,8 +330,8 @@ check("index.html has lw5g-topo-svg",         "lw5g-topo-svg"   in html_src)
 check("index.html has pollLw5g",              "pollLw5g" in html_src)
 check("index.html has renderLw5gCallFlow",    "renderLw5gCallFlow" in html_src)
 check("index.html has renderLw5gOverview",    "renderLw5gOverview" in html_src)
-check("index.html UE slider max=32",          'max="32"' in html_src or "max=\\'32\\'" in html_src
-      or re.search(r"max=['\"]32['\"]", html_src) is not None)
+check("index.html UE slider max=10",          'max="10"' in html_src or "max=\\'10\\'" in html_src
+      or re.search(r"max=['\"]10['\"]", html_src) is not None)
 check("index.html POST /api/lw5g/ues",        "/api/lw5g/ues" in html_src)
 check("lightweight5g NOT in NOT_BUILT_TWINS", "NOT_BUILT_TWINS = new Set([])" in html_src
       or re.search(r"NOT_BUILT_TWINS\s*=\s*new Set\(\[\s*\]\)", html_src) is not None)

@@ -277,8 +277,8 @@ def lw5g_data() -> dict:
 def lw5g_set_ues(nof_ues: int) -> dict:
     """Hot-patch the nof_ues value in gnb_testmode.yml and restart the gnb
     container so the new UE count takes effect immediately."""
-    if not (1 <= nof_ues <= 32):
-        return {"ok": False, "error": "nof_ues must be 1-32"}
+    if not (1 <= nof_ues <= 10):
+        return {"ok": False, "error": "nof_ues must be 1-10"}
     twin = TWINS["lightweight5g"]
     cfg_path = twin["gnb_config"]
     try:
@@ -729,7 +729,7 @@ def make_handler(state: DashboardState):
                 return self._json({"ok": False, "error": str(exc)}, 400)
             nof_ues = body.get("nof_ues") if isinstance(body, dict) else None
             if not isinstance(nof_ues, int) or nof_ues < 1:
-                return self._json({"ok": False, "error": "expected {nof_ues: <1-32>}"}, 400)
+                return self._json({"ok": False, "error": "expected {nof_ues: <1-10>}"}, 400)
             result = lw5g_set_ues(nof_ues)
             return self._json(result, 200 if result.get("ok") else 400)
 

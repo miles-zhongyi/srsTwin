@@ -643,6 +643,12 @@ table.sig tr.sel td{background:rgba(88,166,255,.12)}
 .lte-lanes{display:flex;gap:0;padding:8px 14px;border-bottom:2px solid #f9826c;background:var(--panel2)}
 .lte-lanehdr{flex:1;text-align:center;font-size:12px;font-weight:600;color:#f9826c;padding:4px 0}
 .lte-icon{display:inline-flex;vertical-align:-2px;margin-right:5px;color:#f9826c;opacity:.85}
+/* 5G lightweight twin lane header */
+.lw5g-lanes{display:flex;gap:0;padding:8px 14px;border-bottom:2px solid #58a6ff;background:var(--panel2);flex-shrink:0}
+.lw5g-lanehdr{flex:1;text-align:center;font-size:12px;font-weight:600;color:#58a6ff;padding:4px 0}
+.lw5g-lanehdr.amf{color:#3fb950}
+.lw5g-laneicon{display:inline-flex;vertical-align:-2px;margin-right:5px;color:#58a6ff;opacity:.85}
+.lw5g-laneicon.amf{color:#3fb950}
 .lte-ev-list{flex:1;overflow:auto;padding:4px 0}
 .lte-ev{display:flex;align-items:center;padding:5px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-size:12px}
 .lte-ev:hover{background:rgba(249,130,108,.06)}
@@ -745,8 +751,8 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
     <button class="tab tab-4g on" data-tab="lte4g" data-twin="lte4g_full">4G LTE</button>
     <button class="tab" data-tab="overview" data-twin="lte4g_full">Overview</button>
     <button class="tab tab-sim" data-tab="simulation" data-twin="simulation" style="display:none">Simulation</button>
-    <button class="tab tab-lw5g" data-tab="lw5g_callflow" data-twin="lightweight5g" style="display:none">Call Flow</button>
-    <button class="tab tab-lw5g" data-tab="lw5g_overview" data-twin="lightweight5g" style="display:none">Overview</button>
+    <button class="tab tab-lw5g" data-tab="lw5g-callflow" data-twin="lightweight5g" style="display:none">Call Flow</button>
+    <button class="tab tab-lw5g" data-tab="lw5g-overview" data-twin="lightweight5g" style="display:none">Overview</button>
   </nav>
   <div class="twin-ctrl-bar" id="twin-ctrl-bar">
     <span class="twin-ctrl-status" id="twin-ctrl-status">checking…</span>
@@ -870,12 +876,13 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
 
 <section class="panel" id="panel-lw5g-callflow" data-twin="lightweight5g">
   <div class="lw5g-wrap">
-    <p class="lw5g-desc">Lightweight 5G Twin: OCUDU gNB in test-mode with <em>ru_dummy</em>
-      (no real radio hardware). Phantom UEs cycle through the full DU MAC/RLC/PDCP/RRC → CU-CP →
-      NGAP → Open5GS AMF path. Start the twin, then watch real 5G registration events appear below.
-    </p>
     <div class="lw5g-params-bar" id="lw5g-params-bar-callflow"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-callflow" style="display:none"></div>
+    <div class="lw5g-lanes">
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs internal to the OCUDU gNB (test_mode)">__ICON_UE__</span>Phantom UE</div>
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB — combined DU+CU-CP running with the ru_dummy wall-clock slot driver">__ICON_ENB__</span>OCUDU gNB</div>
+      <div class="lw5g-lanehdr amf"><span class="lw5g-laneicon amf" title="Open5GS AMF — 5G Core network handling NR registration and PDU sessions">__ICON_EPC__</span>Open5GS AMF</div>
+    </div>
     <div id="lw5g-ladder-wrap" style="overflow:auto;flex:1;min-height:200px">
       <div id="lw5g-ladder-empty" class="lw5g-empty">
         <b>Waiting for gnb log data…</b>
@@ -891,6 +898,11 @@ table.ltetrace tr.sel td{background:rgba(249,130,108,.14)}
   <div class="lw5g-wrap">
     <div class="lw5g-params-bar" id="lw5g-params-bar-overview"></div>
     <div class="lw5g-params-panel" id="lw5g-params-panel-overview" style="display:none"></div>
+    <div class="lw5g-lanes" style="margin-bottom:4px">
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="Phantom UEs — software test UEs internal to the OCUDU gNB (test_mode)">__ICON_UE__</span>Phantom UE</div>
+      <div class="lw5g-lanehdr"><span class="lw5g-laneicon" title="OCUDU gNB — combined DU+CU-CP running with the ru_dummy wall-clock slot driver">__ICON_ENB__</span>OCUDU gNB</div>
+      <div class="lw5g-lanehdr amf"><span class="lw5g-laneicon amf" title="Open5GS AMF — 5G Core network handling NR registration and PDU sessions">__ICON_EPC__</span>Open5GS AMF</div>
+    </div>
     <div id="lw5g-kpi-cards" style="display:flex;gap:10px;flex-wrap:wrap;margin:14px 0"></div>
     <div class="lw5g-analytics">
       <div class="lw5g-chart-box" style="min-height:180px">
@@ -1497,16 +1509,12 @@ setInterval(pollSimulation, 4000);
    API: GET /api/lw5g/data  → {events, ue_kpis, summary, has_live}
         POST /api/lw5g/ues  {nof_ues: N}  → restarts gnb with new UE count */
 let lw5gUeCount = 4;
-let lw5gPattern = 'cyclic';
+let lw5gPattern = 'bursty';
 let _lw5gData = null;   // last fetched data from /api/lw5g/data
 
 const LW5G_PATTERNS = [
-  {key:'cyclic', label:'Cyclic',
-   desc:'UEs attach, hold for the configured duration, then release and re-attach — models a continuously repeating signaling storm cycle.'},
   {key:'bursty', label:'Bursty',
-   desc:'UEs arrive in short, dense bursts (configured via scenario.yml) — models a flash-crowd or paging-storm surge.'},
-  {key:'random', label:'Random',
-   desc:'UEs arrive at uniformly random times — models steady, uncorrelated background load.'},
+   desc:'All created UEs connect to the network simultaneously — they all send Registration Request at the same time, creating a coordinated burst of signaling toward the gNB and AMF.'},
 ];
 
 // Phase color palette for the signaling ladder
@@ -1530,7 +1538,7 @@ function renderLw5gParamsBar(suffix){
   if(!bar || !panel) return;
   const panelOpen = panel.style.display !== 'none';
   bar.innerHTML = `<b>UE count: ${lw5gUeCount}</b>
-    <input type="range" min="1" max="32" value="${lw5gUeCount}" id="lw5g-ue-slider-${suffix}">
+    <input type="range" min="1" max="10" value="${lw5gUeCount}" id="lw5g-ue-slider-${suffix}">
     <span class="lw5g-ue-val" id="lw5g-ue-val-${suffix}">${lw5gUeCount}</span>
     <button type="button" class="lw5g-params-toggle" id="lw5g-params-toggle-${suffix}">Parameters ${panelOpen ? '▲' : '▾'}</button>`;
   const slider = document.getElementById(`lw5g-ue-slider-${suffix}`);
